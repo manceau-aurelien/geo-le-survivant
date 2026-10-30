@@ -1,0 +1,2329 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>TERRA UMBRA : L'Éclaireur des Frontières</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- D3.js & TopoJSON for Vector World Map -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            serif: ['Cinzel', 'serif'],
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            abyss: '#07090e',
+            fog: '#0f141d',
+            amberGlow: '#f5d061',
+            amberGold: '#d99b26',
+            frontier: '#1e293b',
+            ash: '#262930',
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    :root {
+      --bg-abyss: #07090e;
+      --gold-bright: #f5d061;
+      --gold-warm: #d99b26;
+      --cyan-mystery: #38bdf8;
+      --danger-crimson: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #07090e;
+      color: #e2e8f0;
+      font-family: 'Inter', sans-serif;
+    }
+
+    /* Fond océanique abyssal et vignette lampe-tempête */
+    .map-viewport {
+      background: radial-gradient(circle at 50% 45%, #101726 0%, #07090e 75%, #040508 100%);
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+
+    .lantern-vignette {
+      pointer-events: none;
+      position: absolute;
+      inset: 0;
+      box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.85), inset 0 0 40px rgba(217, 155, 38, 0.05);
+      z-index: 10;
+    }
+
+    /* Styles SVG des pays selon leur état */
+    .country-path {
+      transition: fill 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+                  stroke 0.35s ease,
+                  stroke-width 0.25s ease,
+                  opacity 0.35s ease,
+                  filter 0.35s ease;
+      vector-effect: non-scaling-stroke;
+    }
+
+    /* Pays inconnu dans le brouillard */
+    .country-unknown {
+      fill: #0c1018;
+      stroke: #151c28;
+      stroke-width: 0.5px;
+      pointer-events: none;
+    }
+
+    /* Pays découvert et actif (Illuminé) */
+    .country-active {
+      fill: url(#activeGoldGradient);
+      stroke: #fef08a;
+      stroke-width: 1.1px;
+      filter: url(#lanternGlow);
+      cursor: pointer;
+    }
+    .country-active:hover {
+      fill: #fde047;
+      stroke: #ffffff;
+      stroke-width: 1.6px;
+    }
+
+    /* Pays Éclaireur actuellement sélectionné comme source */
+    .country-scout {
+      fill: url(#scoutGoldGradient);
+      stroke: #ffffff;
+      stroke-width: 2.2px;
+      filter: url(#lanternGlowStrong);
+      cursor: pointer;
+    }
+
+    /* Pays Frontière Mystère (à découvrir) */
+    .country-mystery {
+      fill: #1b263b;
+      stroke: #38bdf8;
+      stroke-width: 1.2px;
+      stroke-dasharray: 4 2;
+      cursor: pointer;
+      animation: mysteryPulse 3s infinite ease-in-out;
+    }
+    .country-mystery:hover {
+      fill: #273859;
+      stroke: #7dd3fc;
+      stroke-width: 1.8px;
+      stroke-dasharray: none;
+    }
+
+    /* Pays Mystère actuellement ciblé */
+    .country-target {
+      fill: #1e3a5f;
+      stroke: #38bdf8;
+      stroke-width: 2.4px;
+      stroke-dasharray: none;
+      filter: url(#mysteryTargetGlow);
+      cursor: pointer;
+      animation: targetHighlight 1.8s infinite alternate ease-in-out;
+    }
+
+    /* Pays Perdu / Englouti par les ténèbres */
+    .country-lost {
+      fill: url(#lostHatchPattern);
+      stroke: #3f3f46;
+      stroke-width: 0.9px;
+      cursor: pointer;
+      opacity: 0.85;
+    }
+    .country-lost:hover {
+      stroke: #71717a;
+      opacity: 1;
+    }
+
+    @keyframes mysteryPulse {
+      0%, 100% { fill: #162032; stroke-opacity: 0.65; }
+      50% { fill: #22324d; stroke-opacity: 1; }
+    }
+
+    @keyframes targetHighlight {
+      0% { fill: #173254; stroke: #38bdf8; }
+      100% { fill: #254b7c; stroke: #bae6fd; }
+    }
+
+    /* Ligne de vecteur entre le Pays Éclaireur et la Cible Mystère */
+    .scout-beam-bg {
+      fill: none;
+      stroke: rgba(245, 208, 97, 0.25);
+      stroke-width: 5px;
+      stroke-linecap: round;
+      pointer-events: none;
+      vector-effect: non-scaling-stroke;
+    }
+    .scout-beam-line {
+      fill: none;
+      stroke: #f5d061;
+      stroke-width: 2px;
+      stroke-dasharray: 6 5;
+      stroke-linecap: round;
+      pointer-events: none;
+      vector-effect: non-scaling-stroke;
+      animation: beamFlow 1.2s linear infinite;
+    }
+    @keyframes beamFlow {
+      to { stroke-dashoffset: -22; }
+    }
+
+    /* Ponts maritimes subtils */
+    .maritime-link {
+      fill: none;
+      stroke: rgba(56, 189, 248, 0.18);
+      stroke-width: 1px;
+      stroke-dasharray: 2 4;
+      pointer-events: none;
+      vector-effect: non-scaling-stroke;
+    }
+
+    /* Panneaux UI Verre Fumé Cartographique */
+    .carto-panel {
+      background: rgba(11, 15, 24, 0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(217, 155, 38, 0.24);
+      box-shadow: 0 12px 40px -8px rgba(0, 0, 0, 0.8), 0 0 1px 1px rgba(245, 208, 97, 0.08) inset;
+    }
+
+    .carto-panel-cyan {
+      background: rgba(11, 16, 27, 0.90);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      box-shadow: 0 12px 40px -8px rgba(0, 0, 0, 0.85), 0 0 15px rgba(56, 189, 248, 0.07) inset;
+    }
+
+    /* Animation de secousse lors d'une erreur */
+    @keyframes shakeError {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-8px); }
+      40% { transform: translateX(8px); }
+      60% { transform: translateX(-5px); }
+      80% { transform: translateX(5px); }
+    }
+    .shake-anim {
+      animation: shakeError 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+    }
+
+    /* Scrollbars personnalisées */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 20, 29, 0.6);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(217, 155, 38, 0.35);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(245, 208, 97, 0.6);
+    }
+
+    /* Flammes d'essais */
+    .flame-active {
+      color: #f59e0b;
+      filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.8));
+      transition: all 0.3s ease;
+    }
+    .flame-lost {
+      color: #334155;
+      filter: none;
+      transform: scale(0.85);
+      opacity: 0.45;
+      transition: all 0.3s ease;
+    }
+  </style>
+</head>
+<body class="relative select-none overflow-hidden">
+
+  <!-- ======================= BARRE SUPÉRIEURE (HUD DE SURVIE) ======================= -->
+  <header class="fixed top-0 left-0 right-0 z-30 px-3 py-2.5 sm:px-5 sm:py-3 pointer-events-none flex flex-wrap items-center justify-between gap-2">
+    
+    <!-- Titre & Statut de la Lampe -->
+    <div class="carto-panel rounded-xl px-3.5 py-2 pointer-events-auto flex items-center gap-3">
+      <div class="relative flex items-center justify-center w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amberGlow">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41M12 7a5 5 0 100 10 5 5 0 000-10z"/>
+        </svg>
+        <span id="lanternPulseDot" class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="font-serif font-bold text-sm sm:text-base tracking-wider text-amberGlow leading-none">TERRA UMBRA</h1>
+          <span class="hidden md:inline-block text-[10px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/20">Survivant</span>
+        </div>
+        <p class="text-[11px] text-slate-400 hidden sm:block mt-0.5">L'Éclaireur des Frontières</p>
+      </div>
+    </div>
+
+    <!-- Compteurs Géographiques & Jauge de Bonus (5 Pays) -->
+    <div class="carto-panel rounded-xl px-3 py-1.5 sm:px-4 sm:py-2 pointer-events-auto flex items-center gap-3 sm:gap-5 flex-wrap">
+      
+      <!-- Pays Illuminés (Actifs) -->
+      <div class="flex items-center gap-2" title="Pays illuminés capables de servir d'Éclaireur">
+        <span class="w-2.5 h-2.5 rounded-full bg-amberGlow shadow-[0_0_8px_#f5d061]"></span>
+        <div>
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 leading-none">Illuminés</div>
+          <div id="statActiveCount" class="font-mono font-bold text-sm sm:text-base text-amberGlow leading-tight">1</div>
+        </div>
+      </div>
+
+      <div class="h-6 w-px bg-slate-800"></div>
+
+      <!-- Pays Engloutis (Grisés / Perdus) -->
+      <div class="flex items-center gap-2" title="Pays engloutis par les ténèbres après 3 échecs">
+        <span class="w-2.5 h-2.5 rounded-full bg-zinc-600 border border-zinc-400"></span>
+        <div>
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 leading-none">Engloutis</div>
+          <div id="statLostCount" class="font-mono font-bold text-sm sm:text-base text-slate-300 leading-tight">0</div>
+        </div>
+      </div>
+
+      <div class="h-6 w-px bg-slate-800 hidden sm:block"></div>
+
+      <!-- Frontières Mystères Accessibles -->
+      <div class="hidden sm:flex items-center gap-2" title="Pays voisins mystères actuellement accessibles">
+        <span class="w-2.5 h-2.5 rounded-full bg-sky-400 animate-pulse"></span>
+        <div>
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 leading-none">Frontières</div>
+          <div id="statFrontierCount" class="font-mono font-bold text-sm sm:text-base text-sky-400 leading-tight">0</div>
+        </div>
+      </div>
+
+      <div class="h-6 w-px bg-slate-800"></div>
+
+        <!-- Jauge du Bonus d'Indice (Tous les 5 pays trouvés, non cumulable) -->
+      <div class="flex items-center gap-2.5">
+        <div>
+          <div class="flex items-center justify-between gap-1.5 mb-1">
+            <span class="text-[10px] uppercase tracking-wider font-semibold text-amber-200/90">Indice de Convergence</span>
+            <span id="bonusGaugeText" class="text-[10px] font-mono font-bold text-amberGlow">0 / 5</span>
+          </div>
+          <!-- 5 segments de progression -->
+          <div class="flex items-center gap-1" id="bonusSegments">
+            <div class="w-4 sm:w-5 h-1.5 rounded-full bg-slate-800 border border-slate-700 transition-all duration-300"></div>
+            <div class="w-4 sm:w-5 h-1.5 rounded-full bg-slate-800 border border-slate-700 transition-all duration-300"></div>
+            <div class="w-4 sm:w-5 h-1.5 rounded-full bg-slate-800 border border-slate-700 transition-all duration-300"></div>
+            <div class="w-4 sm:w-5 h-1.5 rounded-full bg-slate-800 border border-slate-700 transition-all duration-300"></div>
+            <div class="w-4 sm:w-5 h-1.5 rounded-full bg-slate-800 border border-slate-700 transition-all duration-300"></div>
+          </div>
+        </div>
+
+        <!-- Bouton d'activation du bonus -->
+        <button id="btnUseBonus" onclick="useConvergenceBonus()" disabled
+          class="px-2.5 py-1.5 rounded-lg font-mono text-xs font-semibold transition-all flex items-center gap-1.5 border
+                 disabled:bg-slate-900/70 disabled:text-slate-500 disabled:border-slate-800 disabled:cursor-not-allowed
+                 enabled:bg-gradient-to-r enabled:from-amber-500 enabled:to-yellow-400 enabled:text-slate-950 enabled:border-yellow-200 enabled:shadow-[0_0_15px_rgba(245,208,97,0.5)] enabled:hover:scale-105 enabled:cursor-pointer">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+          </svg>
+          <span id="btnUseBonusLabel">Recharge</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Actions & Outils (Codex, Règles, Audio, Nouvelle Partie) -->
+    <div class="carto-panel rounded-xl p-1.5 pointer-events-auto flex items-center gap-1">
+      <button onclick="openCodexModal()" class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-amberGlow hover:bg-slate-800/70 transition flex items-center gap-1.5" title="Codex Géographique (Pays découverts)">
+        <svg class="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+        </svg>
+        <span class="hidden lg:inline">Codex</span>
+        <span id="codexBadgeCount" class="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300">1</span>
+      </button>
+
+      <button onclick="openRulesModal()" class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-amberGlow hover:bg-slate-800/70 transition flex items-center gap-1" title="Règles de l'Éclaireur">
+        <svg class="w-4 h-4 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><path stroke-linecap="round" stroke-linejoin="round" d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3m.08 4h.01"/>
+        </svg>
+        <span class="hidden xl:inline">Règles</span>
+      </button>
+
+      <button id="btnAudioToggle" onclick="toggleAudio()" class="p-1.5 rounded-lg text-slate-300 hover:text-amberGlow hover:bg-slate-800/70 transition" title="Activer/Désactiver les effets sonores">
+        <svg id="iconAudioOn" class="w-4 h-4 text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
+        </svg>
+        <svg id="iconAudioOff" class="w-4 h-4 text-slate-500 hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/>
+        </svg>
+      </button>
+
+      <button onclick="openNewGameModal()" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amberGlow border border-amber-500/30 transition flex items-center gap-1" title="Nouvelle Expédition">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        <span class="hidden sm:inline">Nouvelle</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ======================= ZONE CARTOGRAPHIQUE PRINCIPALE ======================= -->
+  <main class="map-viewport" id="mapContainer">
+    <div class="lantern-vignette"></div>
+
+    <!-- Notification Toast Flottante -->
+    <div id="toastContainer" class="fixed top-20 left-1/2 -translate-x-1/2 z-40 pointer-events-none flex flex-col items-center gap-2 w-full max-w-md px-4"></div>
+
+    <!-- Contrôles de caméra de la carte (Haut Gauche / Milieu Gauche) -->
+    <div class="fixed left-3 top-20 z-20 flex flex-col gap-1.5">
+      <div class="carto-panel rounded-xl p-1.5 flex flex-col gap-1">
+        <button onclick="zoomMap(1.35)" class="p-2 rounded-lg text-slate-300 hover:text-amberGlow hover:bg-slate-800/80 transition" title="Zoomer (+)">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m6-6H6"/></svg>
+        </button>
+        <button onclick="zoomMap(0.74)" class="p-2 rounded-lg text-slate-300 hover:text-amberGlow hover:bg-slate-800/80 transition" title="Dézoomer (-)">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 12H6"/></svg>
+        </button>
+        <div class="h-px bg-slate-800 my-0.5"></div>
+        <button onclick="centerOnActiveFront()" class="p-2 rounded-lg text-amberGlow hover:bg-amber-500/20 transition" title="Centrer sur le front actif">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 2v4m0 12v4M2 12h4m12 0h4"/>
+          </svg>
+        </button>
+        <button onclick="toggleFogVisibility()" id="btnToggleOutlines" class="p-2 rounded-lg text-slate-400 hover:text-sky-300 hover:bg-slate-800/80 transition" title="Afficher/Masquer les silhouettes du monde dans le brouillard">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Légende compacte -->
+      <div class="carto-panel rounded-xl p-2.5 hidden md:flex flex-col gap-1.5 text-[11px] text-slate-300 max-w-[185px]">
+        <div class="font-serif text-[10px] uppercase tracking-wider text-amberGlow/90 border-b border-slate-800 pb-1 mb-0.5">Légende</div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-sm bg-gradient-to-br from-yellow-300 to-amber-600 border border-yellow-200 shrink-0"></span>
+          <span>Pays Illuminé</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-sm bg-slate-800 border border-dashed border-sky-400 shrink-0"></span>
+          <span>Pays à Découvrir</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-sm bg-zinc-800 border border-zinc-500 shrink-0"></span>
+          <span>Pays Perdu & Compte à rebours</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panneau Latéral Droit : Pays Perdus en attente & Dernier territoire trouvé -->
+    <div class="fixed right-3 top-20 z-20 w-56 sm:w-64 pointer-events-none flex flex-col gap-2">
+      <div id="lostCountriesCard" class="carto-panel rounded-xl p-2.5 pointer-events-auto hidden">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-[11px] font-serif uppercase tracking-wider text-rose-300 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-rose-400 animate-pulse"></span>
+            Terres Englouties
+          </span>
+          <span id="lostListBadge" class="text-[11px] font-mono text-slate-400">0</span>
+        </div>
+        <div id="lostQuickList" class="max-h-36 sm:max-h-44 overflow-y-auto flex flex-col gap-1 pr-0.5">
+          <!-- Généré dynamiquement uniquement pour les pays perdus -->
+        </div>
+      </div>
+
+      <!-- Dernier pays découvert (Fiche Flash Pédagogique) -->
+      <div id="lastDiscoveredCard" class="carto-panel rounded-xl p-2.5 pointer-events-auto hidden transition-all">
+        <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-amber-400/90 mb-0.5">
+          <span>Dernier territoire éclairé</span>
+          <button onclick="document.getElementById('lastDiscoveredCard').classList.add('hidden')" class="text-slate-500 hover:text-slate-300">&times;</button>
+        </div>
+        <div id="lastDiscoveredName" class="font-serif font-bold text-sm text-amberGlow">France</div>
+        <div id="lastDiscoveredMeta" class="text-[11px] text-slate-300 mt-0.5">Capitale : Paris • Europe</div>
+      </div>
+    </div>
+
+    <!-- Canevas SVG de la Carte du Monde -->
+    <svg id="worldMapSvg" class="w-full h-full cursor-grab active:cursor-grabbing">
+      <defs>
+        <!-- Dégradé Or Chaud pour les pays actifs -->
+        <linearGradient id="activeGoldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#f5d061" />
+          <stop offset="100%" stop-color="#c88218" />
+        </linearGradient>
+
+        <!-- Dégradé Or Vif pour le Pays Éclaireur sélectionné -->
+        <linearGradient id="scoutGoldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#fef08a" />
+          <stop offset="50%" stop-color="#f59e0b" />
+          <stop offset="100%" stop-color="#d97706" />
+        </linearGradient>
+
+        <!-- Motif hachuré pour les pays engloutis par les ténèbres -->
+        <pattern id="lostHatchPattern" width="6" height="6" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
+          <rect width="6" height="6" fill="#1c1e24" />
+          <line x1="0" y1="0" x2="0" y2="6" stroke="#2e323b" stroke-width="2" />
+        </pattern>
+
+        <!-- Halo lumineux doux pour les pays découverts -->
+        <filter id="lanternGlow" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="0" stdDeviation="2.5" flood-color="#f5d061" flood-opacity="0.45" />
+        </filter>
+
+        <!-- Halo intense pour le Pays Éclaireur actif -->
+        <filter id="lanternGlowStrong" x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#fef08a" flood-opacity="0.85" />
+        </filter>
+
+        <!-- Halo cyan pour la Cible Mystère -->
+        <filter id="mysteryTargetGlow" x="-25%" y="-25%" width="150%" height="150%">
+          <feDropShadow dx="0" dy="0" stdDeviation="3.5" flood-color="#38bdf8" flood-opacity="0.75" />
+        </filter>
+      </defs>
+
+      <g id="mapRootGroup">
+        <g id="graticuleGroup"></g>
+        <g id="maritimeGroup"></g>
+        <g id="countriesGroup"></g>
+        <g id="beamGroup"></g>
+        <g id="labelsGroup"></g>
+      </g>
+    </svg>
+  </main>
+
+  <!-- ======================= PANNEAU D'EXPLORATION (BAS CENTRAL) ======================= -->
+  <section class="fixed bottom-3 left-1/2 -translate-x-1/2 z-30 w-[96%] max-w-2xl pointer-events-none">
+    
+    <!-- État 1 : Aucun pays mystère sélectionné -->
+    <div id="panelIdleState" class="carto-panel rounded-2xl px-5 py-3.5 pointer-events-auto flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-400/30 flex items-center justify-center text-sky-400 shrink-0">
+          <svg class="w-5 h-5 animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"/>
+          </svg>
+        </div>
+        <div>
+          <h2 class="font-serif font-semibold text-sm sm:text-base text-slate-100">Sélectionnez un Pays Voisin sur la Carte</h2>
+          <p class="text-xs text-slate-400">Cliquez sur une frontière en pointillés bleus sur la carte pour tenter de deviner son nom.</p>
+        </div>
+      </div>
+      <button onclick="selectNextFrontier()" class="px-3.5 py-2 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-400/30 text-xs font-semibold shrink-0 transition">
+        Cibler un voisin &rarr;
+      </button>
+    </div>
+
+    <!-- État 2 : Pays Déjà Trouvé sélectionné (Aucune saisie possible, aucun échec possible) -->
+    <div id="panelDiscoveredState" class="carto-panel rounded-2xl px-5 py-3.5 pointer-events-auto hidden items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-400/40 flex items-center justify-center text-amberGlow shrink-0">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 id="inspectedCountryName" class="font-serif font-bold text-base sm:text-lg text-amberGlow">France</h2>
+            <span class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">Pays déjà trouvé</span>
+          </div>
+          <p id="inspectedCountryMeta" class="text-xs text-slate-300 mt-0.5">Capitale : Paris • Ce territoire est déjà illuminé, cliquez sur un voisin mystère pour jouer.</p>
+        </div>
+      </div>
+      <button onclick="selectNextFrontierFromInspected()" class="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amberGlow border border-amber-500/40 text-xs font-semibold shrink-0 transition">
+        Explorer un voisin &rarr;
+      </button>
+    </div>
+
+    <!-- État 3 : Pays Perdu (Grisé) dont le compte à rebours de 10 pays n'est pas terminé -->
+    <div id="panelLockedLostState" class="carto-panel rounded-2xl px-5 py-3.5 pointer-events-auto hidden items-center justify-between gap-4 border-rose-500/40">
+      <div class="flex items-center gap-3">
+        <div class="w-11 h-11 rounded-xl bg-zinc-800 border border-zinc-600 flex flex-col items-center justify-center text-rose-400 shrink-0">
+          <span id="lockedLostCountdownBadge" class="font-mono font-bold text-base leading-none">10</span>
+          <span class="text-[9px] uppercase tracking-tighter text-zinc-400">pays</span>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 class="font-serif font-bold text-sm sm:text-base text-slate-200">Territoire Englouti par les Ténèbres</h2>
+            <span class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30">Verrouillé</span>
+          </div>
+          <p id="lockedLostMessage" class="text-xs text-slate-400 mt-0.5">
+            Vous devez encore trouver 10 autres pays avant de pouvoir retenter de découvrir le nom de ce territoire.
+          </p>
+        </div>
+      </div>
+      <button onclick="selectNextFrontier()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold shrink-0 transition">
+        Autre frontière &rarr;
+      </button>
+    </div>
+
+    <!-- État 4 : Pays Mystère Ciblé OU Pays Perdu avec compte à rebours à 0 (Interface des 3 Essais) -->
+    <div id="panelActiveTarget" class="carto-panel-cyan rounded-2xl p-3.5 sm:p-4 pointer-events-auto hidden transition-all">
+      
+      <!-- En-tête du panneau : Pays Éclaireur engagé + Vies (3 essais) + Convergence -->
+      <div class="flex flex-wrap items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-slate-800/90">
+        
+        <!-- Sélecteur du Pays Éclaireur (Source qui risque d'être grisée au 3e échec) -->
+        <div class="flex items-center gap-2 flex-wrap">
+          <span id="scoutRoleLabel" class="text-[11px] uppercase tracking-wider text-slate-400 flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-amberGlow"></span>
+            Éclaireur engagé :
+          </span>
+          <select id="scoutSelectDropdown" onchange="onScoutManualChange(this.value)"
+            class="bg-amber-500/15 hover:bg-amber-500/25 text-amberGlow font-semibold text-xs px-2.5 py-1 rounded-lg border border-amber-500/40 focus:outline-none focus:ring-1 focus:ring-amberGlow cursor-pointer">
+            <!-- Options peuplées dynamiquement -->
+          </select>
+          <span id="targetRegionHint" class="text-[11px] text-slate-400 hidden sm:inline-block">• Continent</span>
+        </div>
+
+        <!-- Les 3 Essais (Flammes) & Info d'Indice de Convergence -->
+        <div class="flex items-center gap-3">
+          <!-- Info Convergence : combien de pays découverts touchent cette cible -->
+          <div id="convergenceBadge" class="px-2 py-0.5 rounded-md bg-sky-500/10 border border-sky-400/25 text-[11px] font-mono text-sky-300 flex items-center gap-1"
+               title="Nombre de pays déjà découverts qui touchent ce pays à trouver">
+            <span id="convergenceCountText">1 voisin connu</span>
+          </div>
+
+          <!-- Flammes des 3 Essais -->
+          <div class="flex items-center gap-1 bg-slate-900/90 px-2.5 py-1 rounded-lg border border-slate-800" title="3 essais avant que le Pays Éclaireur ne sombre dans les ténèbres">
+            <span id="attemptLabelText" class="text-[11px] font-mono text-slate-300 mr-1">Essai 1 sur 3</span>
+            <svg id="flame1" class="w-4 h-4 flame-active" viewBox="0 0 24 24" fill="currentColor"><path d="M12 23a7.5 7.5 0 01-5.138-12.963C8.204 8.774 11.5 6.5 11 1.5c6 4 9 8 3 14 1 0 2.5 0 5-2.47.27.773.5 1.604.5 2.47A7.5 7.5 0 0112 23z"/></svg>
+            <svg id="flame2" class="w-4 h-4 flame-active" viewBox="0 0 24 24" fill="currentColor"><path d="M12 23a7.5 7.5 0 01-5.138-12.963C8.204 8.774 11.5 6.5 11 1.5c6 4 9 8 3 14 1 0 2.5 0 5-2.47.27.773.5 1.604.5 2.47A7.5 7.5 0 0112 23z"/></svg>
+            <svg id="flame3" class="w-4 h-4 flame-active" viewBox="0 0 24 24" fill="currentColor"><path d="M12 23a7.5 7.5 0 01-5.138-12.963C8.204 8.774 11.5 6.5 11 1.5c6 4 9 8 3 14 1 0 2.5 0 5-2.47.27.773.5 1.604.5 2.47A7.5 7.5 0 0112 23z"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Zone Centrale : Masque de Lettres & Indices progressifs -->
+      <div class="flex flex-col items-center justify-center my-2 py-2 px-3 rounded-xl bg-slate-950/75 border border-slate-800/80 relative">
+        <div id="hintStatusBanner" class="text-[11px] font-medium text-slate-400 mb-1 flex items-center gap-1.5">
+          <span>Territoire inconnu — Identifiez ce pays voisin</span>
+        </div>
+
+        <!-- Affichage du masque de lettres (_ R _ _ C E) -->
+        <div id="letterMaskDisplay" class="font-mono font-bold text-lg sm:text-2xl tracking-[0.22em] text-amberGlow text-center break-words max-w-full py-0.5">
+          _ _ _ _ _
+        </div>
+
+        <!-- Sous-texte d'avertissement au 2e échec ou historique des essais ratés -->
+        <div id="wrongGuessesContainer" class="text-[11px] text-rose-400/90 font-mono mt-1 min-h-[16px] flex items-center gap-2 flex-wrap justify-center"></div>
+      </div>
+
+      <!-- Formulaire de Saisie du Nom du Pays -->
+      <form id="guessForm" onsubmit="handleGuessSubmit(event)" class="flex items-center gap-2 mt-2.5">
+        <div class="relative flex-1">
+          <input id="countryGuessInput" type="text" autocomplete="off" spellcheck="false"
+            placeholder="Entrez le nom du pays..."
+            class="w-full bg-slate-900/95 text-slate-100 placeholder-slate-500 text-sm sm:text-base px-4 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-amberGlow focus:ring-1 focus:ring-amberGlow transition font-medium" />
+          <span id="letterCountPill" class="hidden absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-amber-300 border border-slate-700">
+            6 lettres
+          </span>
+        </div>
+
+        <button type="submit"
+          class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-bold text-sm shadow-[0_0_20px_rgba(217,155,38,0.35)] hover:shadow-[0_0_25px_rgba(245,208,97,0.55)] transition shrink-0">
+          Éclairer
+        </button>
+
+        <button type="button" onclick="selectNextFrontier()" title="Changer de frontière cible"
+          class="p-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 border border-slate-700 transition shrink-0">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
+          </svg>
+        </button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ======================= MODALE : CHOIX DU DÉPART / NOUVELLE PARTIE ======================= -->
+  <div id="modalNewGame" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="carto-panel rounded-2xl max-w-lg w-full p-6 border border-amber-500/40 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+        <div class="flex items-center gap-2.5">
+          <span class="w-3 h-3 rounded-full bg-amberGlow shadow-[0_0_10px_#f5d061]"></span>
+          <h2 class="font-serif font-bold text-xl text-amberGlow">Nouvelle Expédition</h2>
+        </div>
+        <button onclick="closeNewGameModal()" id="btnCloseNewGame" class="text-slate-400 hover:text-white text-xl leading-none hidden">&times;</button>
+      </div>
+
+      <p class="text-xs sm:text-sm text-slate-300 leading-relaxed mb-4">
+        Vous débutez avec un seul territoire illuminé. Explorez le monde de proche en proche en nommant les pays frontaliers.
+        <span class="text-amber-300 font-medium">Attention : au 3e échec sur une frontière, le pays Éclaireur par lequel vous tentez de passer s'éteint dans les ténèbres !</span>
+      </p>
+
+      <!-- Choix du continent de départ -->
+      <div class="mb-4">
+        <label class="block text-xs font-serif uppercase tracking-wider text-amber-200/90 mb-2">Choisissez votre région d'origine :</label>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <button onclick="startNewExpedition('ALL')" class="p-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 text-left transition group">
+            <div class="font-serif font-bold text-sm text-amberGlow group-hover:translate-x-0.5 transition">🌍 Globe Entier</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">Départ aléatoire mondial</div>
+          </button>
+          <button onclick="startNewExpedition('Europe')" class="p-3 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 hover:border-amber-500/40 text-left transition group">
+            <div class="font-serif font-bold text-sm text-slate-100 group-hover:text-amberGlow">🏰 Europe</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">Frontières denses</div>
+          </button>
+          <button onclick="startNewExpedition('Afrique')" class="p-3 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 hover:border-amber-500/40 text-left transition group">
+            <div class="font-serif font-bold text-sm text-slate-100 group-hover:text-amberGlow">🦁 Afrique</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">Grandes traversées</div>
+          </button>
+          <button onclick="startNewExpedition('Asie')" class="p-3 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 hover:border-amber-500/40 text-left transition group">
+            <div class="font-serif font-bold text-sm text-slate-100 group-hover:text-amberGlow">🏮 Asie</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">Steppes & Archipels</div>
+          </button>
+          <button onclick="startNewExpedition('Amériques')" class="p-3 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 hover:border-amber-500/40 text-left transition group">
+            <div class="font-serif font-bold text-sm text-slate-100 group-hover:text-amberGlow">⛰️ Amériques</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">Du Nord au Sud</div>
+          </button>
+          <button onclick="startNewExpedition('FRANCE')" class="p-3 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-400/30 text-left transition group">
+            <div class="font-serif font-bold text-sm text-sky-300">⚜️ Départ France</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">8 frontières directes</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Résumé rapide des règles clés -->
+      <div class="rounded-xl bg-slate-950/90 border border-slate-800 p-3.5 text-xs text-slate-300 space-y-1.5">
+        <div class="font-semibold text-amberGlow flex items-center gap-1.5">
+          <span>🕯️</span> Mécanique des 3 Essais, Compte à rebours & Indice :
+        </div>
+        <ul class="list-disc list-inside space-y-1 text-slate-400 text-[11px]">
+          <li><strong class="text-slate-200">1er échec :</strong> Le nombre de lettres du pays s'ajoute.</li>
+          <li><strong class="text-slate-200">2e échec :</strong> La première lettre du pays est révélée.</li>
+          <li><strong class="text-rose-400">3e échec :</strong> Le pays Éclaireur par lequel vous cherchiez ce voisin <strong class="text-rose-300">se grise et est perdu</strong> ! Vous ne pourrez retenter de le trouver qu'après avoir découvert <strong class="text-rose-300">10 pays</strong>.</li>
+          <li><strong class="text-sky-300">Bonus tous les 5 pays trouvés :</strong> Révèle autant de lettres dans le désordre que vous avez de pays découverts qui touchent la cible.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= MODALE : RÈGLES COMPLÈTES ======================= -->
+  <div id="modalRules" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden items-center justify-center p-4">
+    <div class="carto-panel rounded-2xl max-w-xl w-full p-6 border border-amber-500/40 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+        <h2 class="font-serif font-bold text-xl text-amberGlow">Code de l'Éclaireur des Frontières</h2>
+        <button onclick="closeRulesModal()" class="text-slate-400 hover:text-white text-2xl leading-none">&times;</button>
+      </div>
+
+      <div class="space-y-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
+        <div class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25">
+          <h3 class="font-serif font-bold text-amberGlow mb-1">1. Progression Frontalière</h3>
+          <p>Vous ne pouvez explorer que les pays qui partagent une frontière directe (terrestre ou pont maritime majeur) avec l'un de vos <strong>Pays Illuminés</strong>. Chaque expédition part d'un <strong>Pays Éclaireur</strong> actif.</p>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25">
+          <h3 class="font-serif font-bold text-rose-300 mb-1">2. Les 3 Essais & Compte à Rebours de 10 Pays</h3>
+          <ul class="space-y-1.5 list-disc list-inside text-slate-300">
+            <li><strong>Essai 1 :</strong> Aucun indice initial.</li>
+            <li><strong>1er Échec :</strong> Le nombre de lettres du pays s'ajoute.</li>
+            <li><strong>2e Échec :</strong> La première lettre du pays s'ajoute.</li>
+            <li><strong>3e Échec :</strong> Le <strong>Pays Éclaireur</strong> engagé se grise et est perdu. Un compte à rebours de <strong>10</strong> s'affiche dessus et diminue de 1 à chaque pays trouvé. Vous ne pourrez retenter de trouver son nom qu'une fois ce compte à rebours arrivé à 0 !</li>
+          </ul>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-sky-500/10 border border-sky-500/25">
+          <h3 class="font-serif font-bold text-sky-300 mb-1">3. L'Indice de Convergence (Tous les 5 pays)</h3>
+          <p class="mb-2">Tous les <strong>5 pays découverts</strong>, votre lanterne charge un <strong>Indice de Convergence</strong>.</p>
+          <ul class="space-y-1.5 list-disc list-inside text-slate-300">
+            <li><strong>Puissance selon l'encerclement :</strong> Le nombre de lettres révélées dépend du nombre de pays déjà découverts qui touchent ce pays mystère ! Si <strong>3 pays découverts</strong> touchent la cible, <strong>3 lettres</strong> seront révélées dans le désordre (ex: <code class="text-sky-300">_ R _ _ C E</code> et non <code class="text-slate-400">F R A _ _ _</code>).</li>
+            <li><strong>Non cumulable :</strong> Vous ne pouvez stocker qu'un seul bonus à la fois. Que vous trouviez 5 ou 30 pays sans l'utiliser, la jauge reste à 1 bonus tant que vous ne l'avez pas consommé.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="mt-5 flex justify-end">
+        <button onclick="closeRulesModal()" class="px-5 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold text-sm hover:bg-amber-400 transition">
+          Reprendre l'Exploration
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= MODALE : CODEX GÉOGRAPHIQUE ======================= -->
+  <div id="modalCodex" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden items-center justify-center p-4">
+    <div class="carto-panel rounded-2xl max-w-3xl w-full p-6 border border-amber-500/40 max-h-[88vh] flex flex-col">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+        <div>
+          <h2 class="font-serif font-bold text-xl text-amberGlow">Codex Cartographique</h2>
+          <p class="text-xs text-slate-400">Journal des terres illuminées et des territoires engloutis durant cette expédition</p>
+        </div>
+        <button onclick="closeCodexModal()" class="text-slate-400 hover:text-white text-2xl leading-none">&times;</button>
+      </div>
+
+      <div id="codexGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 overflow-y-auto pr-1 flex-1">
+        <!-- Peuplé dynamiquement -->
+      </div>
+
+      <div class="mt-4 pt-3 border-t border-slate-800 flex justify-between items-center text-xs text-slate-400">
+        <span id="codexSummaryFooter">0 pays explorés sur 174</span>
+        <button onclick="closeCodexModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold transition">
+          Fermer
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= MODALE : FIN DE PARTIE (DÉFAITE OU VICTOIRE) ======================= -->
+  <div id="modalGameOver" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md hidden items-center justify-center p-4">
+    <div class="carto-panel rounded-2xl max-w-lg w-full p-6 border border-rose-500/40 text-center shadow-2xl">
+      <div id="gameOverIcon" class="w-14 h-14 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto mb-3 text-2xl">
+        🌑
+      </div>
+      <h2 id="gameOverTitle" class="font-serif font-bold text-2xl text-rose-400 mb-1">Les Ténèbres Ont Gagné</h2>
+      <p id="gameOverSubtitle" class="text-xs sm:text-sm text-slate-300 mb-5">
+        Votre dernier pays Éclaireur s'est éteint dans la pénombre. L'expédition s'achève ici.
+      </p>
+
+      <!-- Statistiques de la session -->
+      <div class="grid grid-cols-3 gap-2.5 mb-5">
+        <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400">Pays Découverts</div>
+          <div id="endStatDiscovered" class="font-mono font-bold text-xl text-amberGlow mt-0.5">0</div>
+        </div>
+        <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400">Pays Engloutis</div>
+          <div id="endStatLost" class="font-mono font-bold text-xl text-rose-400 mt-0.5">0</div>
+        </div>
+        <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400">Meilleure Série</div>
+          <div id="endStatStreak" class="font-mono font-bold text-xl text-sky-400 mt-0.5">0</div>
+        </div>
+      </div>
+
+      <!-- Révélation pédagogique du dernier pays cherché -->
+      <div id="endLastTargetBox" class="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 mb-5 hidden">
+        Le territoire mystère qui vous a résisté était : <strong id="endLastTargetName" class="text-amberGlow font-serif text-sm"></strong>
+      </div>
+
+      <div class="flex flex-wrap items-center justify-center gap-3">
+        <button onclick="closeGameOverModalAndInspect()" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-semibold transition">
+          Inspecter la Carte
+        </button>
+        <button onclick="closeGameOverAndRestart()" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg transition">
+          Nouvelle Expédition
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= LOGIQUE DU JEU & BASE GÉOGRAPHIQUE ======================= -->
+  <script>
+    /*************************************************************************
+     * 1. SYNTHÉTISEUR AUDIO PROCÉDURAL (Web Audio API - Ambiance Lampe-Tempête)
+     *************************************************************************/
+    let audioCtx = null;
+    let soundEnabled = true;
+
+    function initAudio() {
+      if (!audioCtx) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) audioCtx = new AudioContext();
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function toggleAudio() {
+      soundEnabled = !soundEnabled;
+      document.getElementById('iconAudioOn').classList.toggle('hidden', !soundEnabled);
+      document.getElementById('iconAudioOff').classList.toggle('hidden', soundEnabled);
+      if (soundEnabled) playSound('select');
+    }
+
+    function playSound(type) {
+      if (!soundEnabled) return;
+      try {
+        initAudio();
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+
+        if (type === 'discover') {
+          // Accord chaleureux doré (Quinte + Tierce majeure)
+          [293.66, 369.99, 440.0, 587.33].forEach((freq, idx) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = idx % 2 === 0 ? 'triangle' : 'sine';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.055);
+            gain.gain.setValueAtTime(0.001, now + idx * 0.055);
+            gain.gain.exponentialRampToValueAtTime(0.11, now + idx * 0.055 + 0.04);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.055 + 0.85);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(now + idx * 0.055);
+            osc.stop(now + idx * 0.055 + 0.9);
+          });
+        } else if (type === 'fail') {
+          // Battement sourd d'erreur (1er ou 2e échec)
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(135, now);
+          osc.frequency.exponentialRampToValueAtTime(75, now + 0.28);
+          gain.gain.setValueAtTime(0.12, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now);
+          osc.stop(now + 0.32);
+        } else if (type === 'lost') {
+          // Extinction dramatique d'un pays dans les ténèbres (3e échec)
+          [160, 110, 73.42].forEach((freq, idx) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+            osc.frequency.exponentialRampToValueAtTime(freq * 0.55, now + idx * 0.08 + 0.75);
+            gain.gain.setValueAtTime(0.16, now + idx * 0.08);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.08 + 0.8);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(now + idx * 0.08);
+            osc.stop(now + idx * 0.08 + 0.85);
+          });
+        } else if (type === 'bonus') {
+          // Carillon cristallin pour l'Indice de Convergence
+          [523.25, 659.25, 783.99, 1046.5].forEach((freq, idx) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.06);
+            gain.gain.setValueAtTime(0.09, now + idx * 0.06);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.06 + 0.65);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(now + idx * 0.06);
+            osc.stop(now + idx * 0.06 + 0.7);
+          });
+        } else if (type === 'select') {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(420, now);
+          osc.frequency.exponentialRampToValueAtTime(540, now + 0.06);
+          gain.gain.setValueAtTime(0.04, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now);
+          osc.stop(now + 0.08);
+        }
+      } catch (e) {
+        // Ignorer si l'audio est bloqué par le navigateur
+      }
+    }
+
+    /*************************************************************************
+     * 2. BASE DE DONNÉES MONDIALE DES PAYS & GRAPHE DES FRONTIÈRES (FRANÇAIS)
+     * Codes numériques ISO 3166-1 correspondant à world-atlas countries-110m
+     *************************************************************************/
+    const RAW_COUNTRIES = {
+      // ==================== EUROPE ====================
+      "250": { name: "France", aliases: ["republique francaise", "hexagone"], capital: "Paris", region: "Europe", neighbors: ["724", "056", "442", "276", "756", "380", "826", "076", "740"] },
+      "724": { name: "Espagne", aliases: ["royaume d espagne"], capital: "Madrid", region: "Europe", neighbors: ["620", "250", "504"] },
+      "620": { name: "Portugal", aliases: ["republique portugaise"], capital: "Lisbonne", region: "Europe", neighbors: ["724"] },
+      "056": { name: "Belgique", aliases: ["royaume de belgique"], capital: "Bruxelles", region: "Europe", neighbors: ["250", "442", "276", "528", "826"] },
+      "442": { name: "Luxembourg", aliases: ["grand duche de luxembourg"], capital: "Luxembourg", region: "Europe", neighbors: ["250", "056", "276"] },
+      "528": { name: "Pays-Bas", aliases: ["hollande", "royaume des pays bas"], capital: "Amsterdam", region: "Europe", neighbors: ["056", "276", "826"] },
+      "276": { name: "Allemagne", aliases: ["republique federale d allemagne", "rfa"], capital: "Berlin", region: "Europe", neighbors: ["250", "056", "442", "528", "208", "616", "203", "040", "756"] },
+      "756": { name: "Suisse", aliases: ["confederation suisse", "helvetie"], capital: "Berne", region: "Europe", neighbors: ["250", "276", "040", "380"] },
+      "380": { name: "Italie", aliases: ["republique italienne"], capital: "Rome", region: "Europe", neighbors: ["250", "756", "040", "705", "300", "788"] },
+      "826": { name: "Royaume-Uni", aliases: ["angleterre", "grande bretagne", "uk", "ru", "ecosse", "pays de galles"], capital: "Londres", region: "Europe", neighbors: ["372", "250", "056", "528", "352", "578"] },
+      "372": { name: "Irlande", aliases: ["republique d irlande", "eire"], capital: "Dublin", region: "Europe", neighbors: ["826", "352"] },
+      "352": { name: "Islande", aliases: ["republique d islande"], capital: "Reykjavik", region: "Europe", neighbors: ["826", "372", "578", "304"] },
+      "208": { name: "Danemark", aliases: ["royaume du danemark"], capital: "Copenhague", region: "Europe", neighbors: ["276", "752", "578"] },
+      "578": { name: "Norvège", aliases: ["royaume de norvege"], capital: "Oslo", region: "Europe", neighbors: ["752", "246", "643", "208", "826", "352"] },
+      "752": { name: "Suède", aliases: ["royaume de suede"], capital: "Stockholm", region: "Europe", neighbors: ["578", "246", "208"] },
+      "246": { name: "Finlande", aliases: ["republique de finlande"], capital: "Helsinki", region: "Europe", neighbors: ["752", "578", "643", "233"] },
+      "233": { name: "Estonie", aliases: ["republique d estonie"], capital: "Tallinn", region: "Europe", neighbors: ["246", "643", "428"] },
+      "428": { name: "Lettonie", aliases: ["republique de lettonie"], capital: "Riga", region: "Europe", neighbors: ["233", "643", "112", "440"] },
+      "440": { name: "Lituanie", aliases: ["republique de lituanie"], capital: "Vilnius", region: "Europe", neighbors: ["428", "112", "616", "643"] },
+      "616": { name: "Pologne", aliases: ["republique de pologne"], capital: "Varsovie", region: "Europe", neighbors: ["276", "203", "703", "804", "112", "440", "643"] },
+      "203": { name: "Tchéquie", aliases: ["republique tcheque", "tchecoslovaquie"], capital: "Prague", region: "Europe", neighbors: ["276", "616", "703", "040"] },
+      "703": { name: "Slovaquie", aliases: ["republique slovaque"], capital: "Bratislava", region: "Europe", neighbors: ["203", "616", "804", "348", "040"] },
+      "040": { name: "Autriche", aliases: ["republique d autriche"], capital: "Vienne", region: "Europe", neighbors: ["276", "203", "703", "348", "705", "380", "756"] },
+      "348": { name: "Hongrie", aliases: ["republique de hongrie"], capital: "Budapest", region: "Europe", neighbors: ["040", "703", "804", "642", "688", "191", "705"] },
+      "705": { name: "Slovénie", aliases: ["republique de slovenie"], capital: "Ljubljana", region: "Europe", neighbors: ["380", "040", "348", "191"] },
+      "191": { name: "Croatie", aliases: ["republique de croatie"], capital: "Zagreb", region: "Europe", neighbors: ["705", "348", "688", "070", "499"] },
+      "070": { name: "Bosnie-Herzégovine", aliases: ["bosnie", "bosnie herzegovine"], capital: "Sarajevo", region: "Europe", neighbors: ["191", "688", "499"] },
+      "688": { name: "Serbie", aliases: ["republique de serbie"], capital: "Belgrade", region: "Europe", neighbors: ["348", "642", "100", "807", "008", "499", "070", "191"] },
+      "499": { name: "Monténégro", aliases: ["montenegro"], capital: "Podgorica", region: "Europe", neighbors: ["191", "070", "688", "008"] },
+      "008": { name: "Albanie", aliases: ["republique d albanie"], capital: "Tirana", region: "Europe", neighbors: ["499", "688", "807", "300"] },
+      "807": { name: "Macédoine du Nord", aliases: ["macedoine", "republique de macedoine du nord"], capital: "Skopje", region: "Europe", neighbors: ["688", "100", "300", "008"] },
+      "300": { name: "Grèce", aliases: ["republique hellenique", "hellas"], capital: "Athènes", region: "Europe", neighbors: ["008", "807", "100", "792", "380", "196"] },
+      "100": { name: "Bulgarie", aliases: ["republique de bulgarie"], capital: "Sofia", region: "Europe", neighbors: ["642", "688", "807", "300", "792"] },
+      "642": { name: "Roumanie", aliases: ["roumanie"], capital: "Bucarest", region: "Europe", neighbors: ["804", "498", "100", "688", "348"] },
+      "498": { name: "Moldavie", aliases: ["republique de moldavie"], capital: "Chișinău", region: "Europe", neighbors: ["642", "804"] },
+      "804": { name: "Ukraine", aliases: ["ukraine"], capital: "Kiev", region: "Europe", neighbors: ["616", "703", "348", "642", "498", "112", "643"] },
+      "112": { name: "Biélorussie", aliases: ["belarus", "russie blanche"], capital: "Minsk", region: "Europe", neighbors: ["428", "440", "616", "804", "643"] },
+      "643": { name: "Russie", aliases: ["federation de russie"], capital: "Moscou", region: "Europe", neighbors: ["578", "246", "233", "428", "440", "616", "112", "804", "268", "031", "398", "156", "496", "408", "392", "840"] },
+      "196": { name: "Chypre", aliases: ["republique de chypre"], capital: "Nicosie", region: "Europe", neighbors: ["300", "792", "760", "422"] },
+
+      // ==================== ASIE & MOYEN-ORIENT ====================
+      "792": { name: "Turquie", aliases: ["republique de turquie", "turkiye"], capital: "Ankara", region: "Asie", neighbors: ["300", "100", "268", "051", "031", "364", "368", "760", "196"] },
+      "268": { name: "Géorgie", aliases: ["georgie"], capital: "Tbilissi", region: "Asie", neighbors: ["643", "031", "051", "792"] },
+      "051": { name: "Arménie", aliases: ["republique d armenie"], capital: "Erevan", region: "Asie", neighbors: ["268", "031", "364", "792"] },
+      "031": { name: "Azerbaïdjan", aliases: ["republique d azerbaidjan"], capital: "Bakou", region: "Asie", neighbors: ["643", "268", "051", "364", "792"] },
+      "760": { name: "Syrie", aliases: ["republique arabe syrienne"], capital: "Damas", region: "Asie", neighbors: ["792", "368", "400", "376", "422", "196"] },
+      "422": { name: "Liban", aliases: ["republique libanaise"], capital: "Beyrouth", region: "Asie", neighbors: ["760", "376", "196"] },
+      "376": { name: "Israël", aliases: ["etat d israel"], capital: "Jérusalem", region: "Asie", neighbors: ["422", "760", "400", "275", "818"] },
+      "275": { name: "Palestine", aliases: ["etat de palestine", "cisjordanie"], capital: "Ramallah", region: "Asie", neighbors: ["376", "400", "818"] },
+      "400": { name: "Jordanie", aliases: ["royaume hachemite de jordanie"], capital: "Amman", region: "Asie", neighbors: ["760", "368", "682", "376", "275", "818"] },
+      "368": { name: "Irak", aliases: ["republique d irak", "iraq"], capital: "Bagdad", region: "Asie", neighbors: ["792", "364", "414", "682", "400", "760"] },
+      "414": { name: "Koweït", aliases: ["etat du koweit"], capital: "Koweït", region: "Asie", neighbors: ["368", "682", "364"] },
+      "682": { name: "Arabie saoudite", aliases: ["royaume d arabie saoudite", "arabie"], capital: "Riyad", region: "Asie", neighbors: ["400", "368", "414", "634", "784", "512", "887", "818"] },
+      "634": { name: "Qatar", aliases: ["etat du qatar"], capital: "Doha", region: "Asie", neighbors: ["682", "784", "364"] },
+      "784": { name: "Émirats arabes unis", aliases: ["eau", "emirats", "uae"], capital: "Abou Dabi", region: "Asie", neighbors: ["682", "512", "634", "364"] },
+      "512": { name: "Oman", aliases: ["sultanat d oman"], capital: "Mascate", region: "Asie", neighbors: ["784", "682", "887", "364", "586"] },
+      "887": { name: "Yémen", aliases: ["republique du yemen"], capital: "Sanaa", region: "Asie", neighbors: ["682", "512", "262", "232", "706"] },
+      "364": { name: "Iran", aliases: ["republique islamique d iran", "perse"], capital: "Téhéran", region: "Asie", neighbors: ["368", "792", "051", "031", "795", "004", "586", "414", "634", "784", "512"] },
+      "398": { name: "Kazakhstan", aliases: ["republique du kazakhstan"], capital: "Astana", region: "Asie", neighbors: ["643", "156", "417", "860", "795"] },
+      "860": { name: "Ouzbékistan", aliases: ["republique d ouzbekistan"], capital: "Tachkent", region: "Asie", neighbors: ["398", "417", "762", "004", "795"] },
+      "795": { name: "Turkménistan", aliases: ["turkmenistan"], capital: "Achgabat", region: "Asie", neighbors: ["398", "860", "004", "364"] },
+      "417": { name: "Kirghizistan", aliases: ["republique kirghize", "kirghizie"], capital: "Bichkek", region: "Asie", neighbors: ["398", "156", "762", "860"] },
+      "762": { name: "Tadjikistan", aliases: ["republique du tadjikistan"], capital: "Douchanbé", region: "Asie", neighbors: ["417", "156", "004", "860"] },
+      "004": { name: "Afghanistan", aliases: ["afghanistan"], capital: "Kaboul", region: "Asie", neighbors: ["364", "795", "860", "762", "156", "586"] },
+      "586": { name: "Pakistan", aliases: ["republique islamique du pakistan"], capital: "Islamabad", region: "Asie", neighbors: ["364", "004", "156", "356", "512"] },
+      "356": { name: "Inde", aliases: ["republique de l inde"], capital: "New Delhi", region: "Asie", neighbors: ["586", "156", "524", "064", "050", "104", "144"] },
+      "524": { name: "Népal", aliases: ["nepal"], capital: "Katmandou", region: "Asie", neighbors: ["356", "156"] },
+      "064": { name: "Bhoutan", aliases: ["royaume du bhoutan"], capital: "Thimphou", region: "Asie", neighbors: ["356", "156"] },
+      "050": { name: "Bangladesh", aliases: ["republique populaire du bangladesh"], capital: "Dacca", region: "Asie", neighbors: ["356", "104"] },
+      "144": { name: "Sri Lanka", aliases: ["ceylan"], capital: "Sri Jayawardenapura Kotte", region: "Asie", neighbors: ["356"] },
+      "156": { name: "Chine", aliases: ["republique populaire de chine", "rpc"], capital: "Pékin", region: "Asie", neighbors: ["643", "496", "398", "417", "762", "004", "586", "356", "524", "064", "104", "418", "704", "408", "158", "392", "608"] },
+      "496": { name: "Mongolie", aliases: ["mongolie"], capital: "Oulan-Bator", region: "Asie", neighbors: ["643", "156"] },
+      "408": { name: "Corée du Nord", aliases: ["rpdc", "republique populaire democratique de coree"], capital: "Pyongyang", region: "Asie", neighbors: ["156", "643", "410"] },
+      "410": { name: "Corée du Sud", aliases: ["republique de coree", "coree"], capital: "Séoul", region: "Asie", neighbors: ["408", "392"] },
+      "392": { name: "Japon", aliases: ["nippon", "empire du japon"], capital: "Tokyo", region: "Asie", neighbors: ["410", "643", "156", "158", "608"] },
+      "158": { name: "Taïwan", aliases: ["republique de chine", "formose"], capital: "Taipei", region: "Asie", neighbors: ["156", "392", "608"] },
+      "104": { name: "Birmanie", aliases: ["myanmar"], capital: "Naypyidaw", region: "Asie", neighbors: ["050", "356", "156", "418", "764"] },
+      "764": { name: "Thaïlande", aliases: ["royaume de thailande", "siam"], capital: "Bangkok", region: "Asie", neighbors: ["104", "418", "116", "458"] },
+      "418": { name: "Laos", aliases: ["republique democratique populaire lao"], capital: "Vientiane", region: "Asie", neighbors: ["156", "104", "764", "116", "704"] },
+      "116": { name: "Cambodge", aliases: ["royaume du cambodge"], capital: "Phnom Penh", region: "Asie", neighbors: ["764", "418", "704"] },
+      "704": { name: "Viêt Nam", aliases: ["vietnam", "viet nam"], capital: "Hanoï", region: "Asie", neighbors: ["156", "418", "116", "608", "458"] },
+      "458": { name: "Malaisie", aliases: ["malaisie"], capital: "Kuala Lumpur", region: "Asie", neighbors: ["764", "360", "096", "608", "704"] },
+      "096": { name: "Brunei", aliases: ["brunei darussalam"], capital: "Bandar Seri Begawan", region: "Asie", neighbors: ["458", "360", "608"] },
+      "608": { name: "Philippines", aliases: ["republique des philippines"], capital: "Manille", region: "Asie", neighbors: ["158", "156", "704", "458", "096", "360", "392"] },
+      "360": { name: "Indonésie", aliases: ["republique d indonesie"], capital: "Jakarta", region: "Asie", neighbors: ["458", "096", "608", "626", "598", "036"] },
+      "626": { name: "Timor oriental", aliases: ["timor leste", "timor"], capital: "Dili", region: "Asie", neighbors: ["360", "036"] },
+
+      // ==================== OCÉANIE ====================
+      "036": { name: "Australie", aliases: ["commonwealth d australie"], capital: "Canberra", region: "Océanie", neighbors: ["360", "626", "598", "554", "540"] },
+      "598": { name: "Papouasie-Nouvelle-Guinée", aliases: ["papouasie", "png"], capital: "Port Moresby", region: "Océanie", neighbors: ["360", "036", "090"] },
+      "090": { name: "Îles Salomon", aliases: ["salomon"], capital: "Honiara", region: "Océanie", neighbors: ["598", "548", "540"] },
+      "548": { name: "Vanuatu", aliases: ["republique de vanuatu"], capital: "Port-Vila", region: "Océanie", neighbors: ["090", "540", "242"] },
+      "540": { name: "Nouvelle-Calédonie", aliases: ["nouvelle caledonie"], capital: "Nouméa", region: "Océanie", neighbors: ["036", "548", "090", "554"] },
+      "242": { name: "Fidji", aliases: ["iles fidji"], capital: "Suva", region: "Océanie", neighbors: ["548", "554"] },
+      "554": { name: "Nouvelle-Zélande", aliases: ["aotearoa"], capital: "Wellington", region: "Océanie", neighbors: ["036", "540", "242"] },
+
+      // ==================== AFRIQUE ====================
+      "504": { name: "Maroc", aliases: ["royaume du maroc"], capital: "Rabat", region: "Afrique", neighbors: ["724", "012", "732", "478"] },
+      "732": { name: "Sahara occidental", aliases: ["rasd"], capital: "Laâyoune", region: "Afrique", neighbors: ["504", "012", "478"] },
+      "012": { name: "Algérie", aliases: ["republique algerienne"], capital: "Alger", region: "Afrique", neighbors: ["504", "732", "478", "466", "562", "434", "788"] },
+      "788": { name: "Tunisie", aliases: ["republique tunisienne"], capital: "Tunis", region: "Afrique", neighbors: ["012", "434", "380"] },
+      "434": { name: "Libye", aliases: ["etat de libye"], capital: "Tripoli", region: "Afrique", neighbors: ["788", "012", "562", "148", "729", "818"] },
+      "818": { name: "Égypte", aliases: ["republique arabe d egypte"], capital: "Le Caire", region: "Afrique", neighbors: ["434", "729", "376", "275", "400", "682"] },
+      "478": { name: "Mauritanie", aliases: ["republique islamique de mauritanie"], capital: "Nouakchott", region: "Afrique", neighbors: ["504", "732", "012", "466", "686"] },
+      "466": { name: "Mali", aliases: ["republique du mali"], capital: "Bamako", region: "Afrique", neighbors: ["478", "012", "562", "854", "384", "324", "686"] },
+      "562": { name: "Niger", aliases: ["republique du niger"], capital: "Niamey", region: "Afrique", neighbors: ["012", "434", "148", "566", "204", "854", "466"] },
+      "148": { name: "Tchad", aliases: ["republique du tchad"], capital: "N'Djaména", region: "Afrique", neighbors: ["434", "729", "140", "120", "566", "562"] },
+      "729": { name: "Soudan", aliases: ["republique du soudan"], capital: "Khartoum", region: "Afrique", neighbors: ["818", "434", "148", "140", "728", "231", "232"] },
+      "728": { name: "Soudan du Sud", aliases: ["sud soudan"], capital: "Djouba", region: "Afrique", neighbors: ["729", "231", "404", "800", "180", "140"] },
+      "232": { name: "Érythrée", aliases: ["etat d erythree"], capital: "Asmara", region: "Afrique", neighbors: ["729", "231", "262", "887"] },
+      "262": { name: "Djibouti", aliases: ["republique de djibouti"], capital: "Djibouti", region: "Afrique", neighbors: ["232", "231", "706", "887"] },
+      "231": { name: "Éthiopie", aliases: ["republique democratique federale d ethiopie"], capital: "Addis-Abeba", region: "Afrique", neighbors: ["232", "262", "706", "404", "728", "729"] },
+      "706": { name: "Somalie", aliases: ["republique federale de somalie"], capital: "Mogadiscio", region: "Afrique", neighbors: ["262", "231", "404", "887"] },
+      "686": { name: "Sénégal", aliases: ["republique du senegal"], capital: "Dakar", region: "Afrique", neighbors: ["478", "466", "324", "624", "270"] },
+      "270": { name: "Gambie", aliases: ["republique de gambie"], capital: "Banjul", region: "Afrique", neighbors: ["686"] },
+      "624": { name: "Guinée-Bissau", aliases: ["guinee bissau"], capital: "Bissau", region: "Afrique", neighbors: ["686", "324"] },
+      "324": { name: "Guinée", aliases: ["republique de guinee", "guinee conakry"], capital: "Conakry", region: "Afrique", neighbors: ["624", "686", "466", "384", "430", "694"] },
+      "694": { name: "Sierra Leone", aliases: ["republique de sierra leone"], capital: "Freetown", region: "Afrique", neighbors: ["324", "430"] },
+      "430": { name: "Liberia", aliases: ["republique du liberia"], capital: "Monrovia", region: "Afrique", neighbors: ["694", "324", "384"] },
+      "384": { name: "Côte d'Ivoire", aliases: ["republique de cote d ivoire"], capital: "Yamoussoukro", region: "Afrique", neighbors: ["430", "324", "466", "854", "288"] },
+      "854": { name: "Burkina Faso", aliases: ["burkina"], capital: "Ouagadougou", region: "Afrique", neighbors: ["466", "562", "204", "768", "288", "384"] },
+      "288": { name: "Ghana", aliases: ["republique du ghana"], capital: "Accra", region: "Afrique", neighbors: ["384", "854", "768"] },
+      "768": { name: "Togo", aliases: ["republique togolaise"], capital: "Lomé", region: "Afrique", neighbors: ["288", "854", "204"] },
+      "204": { name: "Bénin", aliases: ["republique du benin", "dahomey"], capital: "Porto-Novo", region: "Afrique", neighbors: ["768", "854", "562", "566"] },
+      "566": { name: "Nigeria", aliases: ["republique federale du nigeria"], capital: "Abuja", region: "Afrique", neighbors: ["204", "562", "148", "120"] },
+      "120": { name: "Cameroun", aliases: ["republique du cameroun"], capital: "Yaoundé", region: "Afrique", neighbors: ["566", "148", "140", "178", "266", "226"] },
+      "140": { name: "République centrafricaine", aliases: ["centrafrique", "rca"], capital: "Bangui", region: "Afrique", neighbors: ["148", "729", "728", "180", "178", "120"] },
+      "226": { name: "Guinée équatoriale", aliases: ["guinee equatoriale"], capital: "Malabo", region: "Afrique", neighbors: ["120", "266"] },
+      "266": { name: "Gabon", aliases: ["republique gabonaise"], capital: "Libreville", region: "Afrique", neighbors: ["226", "120", "178"] },
+      "178": { name: "Congo", aliases: ["republique du congo", "congo brazzaville"], capital: "Brazzaville", region: "Afrique", neighbors: ["266", "120", "140", "180", "024"] },
+      "180": { name: "République démocratique du Congo", aliases: ["rdc", "rd congo", "congo kinshasa", "zaire"], capital: "Kinshasa", region: "Afrique", neighbors: ["178", "140", "728", "800", "646", "108", "834", "894", "024"] },
+      "800": { name: "Ouganda", aliases: ["republique d ouganda"], capital: "Kampala", region: "Afrique", neighbors: ["728", "404", "834", "646", "180"] },
+      "404": { name: "Kenya", aliases: ["republique du kenya"], capital: "Nairobi", region: "Afrique", neighbors: ["728", "231", "706", "834", "800"] },
+      "646": { name: "Rwanda", aliases: ["republique du rwanda"], capital: "Kigali", region: "Afrique", neighbors: ["800", "834", "108", "180"] },
+      "108": { name: "Burundi", aliases: ["republique du burundi"], capital: "Gitega", region: "Afrique", neighbors: ["646", "834", "180"] },
+      "834": { name: "Tanzanie", aliases: ["republique unie de tanzanie"], capital: "Dodoma", region: "Afrique", neighbors: ["404", "800", "646", "108", "180", "894", "454", "508"] },
+      "024": { name: "Angola", aliases: ["republique d angola"], capital: "Luanda", region: "Afrique", neighbors: ["178", "180", "894", "516"] },
+      "894": { name: "Zambie", aliases: ["republique de zambie"], capital: "Lusaka", region: "Afrique", neighbors: ["180", "834", "454", "508", "716", "072", "516", "024"] },
+      "454": { name: "Malawi", aliases: ["republique du malawi"], capital: "Lilongwe", region: "Afrique", neighbors: ["834", "508", "894"] },
+      "508": { name: "Mozambique", aliases: ["republique du mozambique"], capital: "Maputo", region: "Afrique", neighbors: ["834", "454", "894", "716", "710", "748", "450"] },
+      "450": { name: "Madagascar", aliases: ["republique de madagascar", "grande ile"], capital: "Antananarivo", region: "Afrique", neighbors: ["508"] },
+      "716": { name: "Zimbabwe", aliases: ["republique du zimbabwe"], capital: "Harare", region: "Afrique", neighbors: ["894", "508", "710", "072"] },
+      "072": { name: "Botswana", aliases: ["republique du botswana"], capital: "Gaborone", region: "Afrique", neighbors: ["516", "894", "716", "710"] },
+      "516": { name: "Namibie", aliases: ["republique de namibie"], capital: "Windhoek", region: "Afrique", neighbors: ["024", "894", "072", "710"] },
+      "710": { name: "Afrique du Sud", aliases: ["rsa", "republique d afrique du sud"], capital: "Pretoria", region: "Afrique", neighbors: ["516", "072", "716", "508", "748", "426"] },
+      "426": { name: "Lesotho", aliases: ["royaume du lesotho"], capital: "Maseru", region: "Afrique", neighbors: ["710"] },
+      "748": { name: "Eswatini", aliases: ["swaziland", "royaume d eswatini"], capital: "Mbabane", region: "Afrique", neighbors: ["710", "508"] },
+
+      // ==================== AMÉRIQUES ====================
+      "124": { name: "Canada", aliases: ["canada"], capital: "Ottawa", region: "Amériques", neighbors: ["840", "304"] },
+      "304": { name: "Groenland", aliases: ["kalaallit nunaat"], capital: "Nuuk", region: "Amériques", neighbors: ["124", "352"] },
+      "840": { name: "États-Unis", aliases: ["usa", "etats unis d amerique", "amerique"], capital: "Washington", region: "Amériques", neighbors: ["124", "484", "192", "044", "643"] },
+      "484": { name: "Mexique", aliases: ["etats unis mexicains"], capital: "Mexico", region: "Amériques", neighbors: ["840", "320", "084", "192"] },
+      "084": { name: "Belize", aliases: ["belize"], capital: "Belmopan", region: "Amériques", neighbors: ["484", "320"] },
+      "320": { name: "Guatemala", aliases: ["republique du guatemala"], capital: "Guatemala", region: "Amériques", neighbors: ["484", "084", "340", "222"] },
+      "222": { name: "Salvador", aliases: ["el salvador"], capital: "San Salvador", region: "Amériques", neighbors: ["320", "340"] },
+      "340": { name: "Honduras", aliases: ["republique du honduras"], capital: "Tegucigalpa", region: "Amériques", neighbors: ["320", "222", "558"] },
+      "558": { name: "Nicaragua", aliases: ["republique du nicaragua"], capital: "Managua", region: "Amériques", neighbors: ["340", "188"] },
+      "188": { name: "Costa Rica", aliases: ["republique du costa rica"], capital: "San José", region: "Amériques", neighbors: ["558", "591"] },
+      "591": { name: "Panama", aliases: ["republique du panama"], capital: "Panama", region: "Amériques", neighbors: ["188", "170"] },
+      "044": { name: "Bahamas", aliases: ["iles bahamas"], capital: "Nassau", region: "Amériques", neighbors: ["840", "192"] },
+      "192": { name: "Cuba", aliases: ["republique de cuba"], capital: "La Havane", region: "Amériques", neighbors: ["840", "484", "044", "388", "332"] },
+      "388": { name: "Jamaïque", aliases: ["jamaique"], capital: "Kingston", region: "Amériques", neighbors: ["192", "332"] },
+      "332": { name: "Haïti", aliases: ["republique d haiti"], capital: "Port-au-Prince", region: "Amériques", neighbors: ["192", "388", "214"] },
+      "214": { name: "République dominicaine", aliases: ["saint domingue", "rep dominicaine"], capital: "Saint-Domingue", region: "Amériques", neighbors: ["332", "630", "862"] },
+      "630": { name: "Porto Rico", aliases: ["puerto rico"], capital: "San Juan", region: "Amériques", neighbors: ["214"] },
+      "780": { name: "Trinité-et-Tobago", aliases: ["trinite et tobago", "trinidad"], capital: "Port-d'Espagne", region: "Amériques", neighbors: ["862", "328"] },
+      "170": { name: "Colombie", aliases: ["republique de colombie"], capital: "Bogota", region: "Amériques", neighbors: ["591", "862", "076", "604", "218"] },
+      "862": { name: "Venezuela", aliases: ["republique bolivarienne du venezuela"], capital: "Caracas", region: "Amériques", neighbors: ["170", "076", "328", "780", "214"] },
+      "328": { name: "Guyana", aliases: ["republique du guyana"], capital: "Georgetown", region: "Amériques", neighbors: ["862", "076", "740", "780"] },
+      "740": { name: "Suriname", aliases: ["surinam"], capital: "Paramaribo", region: "Amériques", neighbors: ["328", "076", "250"] },
+      "218": { name: "Équateur", aliases: ["republique de l equateur"], capital: "Quito", region: "Amériques", neighbors: ["170", "604"] },
+      "604": { name: "Pérou", aliases: ["republique du perou"], capital: "Lima", region: "Amériques", neighbors: ["218", "170", "076", "068", "152"] },
+      "076": { name: "Brésil", aliases: ["republique federative du bresil"], capital: "Brasília", region: "Amériques", neighbors: ["250", "740", "328", "862", "170", "604", "068", "600", "032", "858"] },
+      "068": { name: "Bolivie", aliases: ["etat plurinational de bolivie"], capital: "Sucre", region: "Amériques", neighbors: ["604", "076", "600", "032", "152"] },
+      "600": { name: "Paraguay", aliases: ["republique du paraguay"], capital: "Asunción", region: "Amériques", neighbors: ["068", "076", "032"] },
+      "858": { name: "Uruguay", aliases: ["republique orientale de l uruguay"], capital: "Montevideo", region: "Amériques", neighbors: ["076", "032"] },
+      "032": { name: "Argentine", aliases: ["republique argentine"], capital: "Buenos Aires", region: "Amériques", neighbors: ["152", "068", "600", "076", "858"] },
+      "152": { name: "Chili", aliases: ["republique du chili"], capital: "Santiago", region: "Amériques", neighbors: ["604", "068", "032"] }
+    };
+
+    /*************************************************************************
+     * 3. ÉTAT GLOBAL DE LA PARTIE & MOTEUR DE JEU
+     *************************************************************************/
+    const COUNTRIES = {}; // Filtré et symétrisé après chargement de la carte
+    let mapFeaturesById = {};
+    let centroidsById = {};
+    let svg, gRoot, gCountries, gMaritime, gBeam, gLabels, zoomBehavior, pathGenerator;
+    let showWorldFogSilhouettes = true;
+
+    const gameState = {
+      status: 'INIT', // 'PLAYING' | 'GAMEOVER' | 'VICTORY'
+      countryStates: {}, // id -> 'UNKNOWN' | 'ACTIVE' | 'LOST'
+      lostCountdowns: {}, // id -> nombre de pays restants à trouver avant de pouvoir retenter ce pays perdu (10 -> 0)
+      viewMode: 'IDLE',  // 'IDLE' | 'DISCOVERED' | 'LOCKED_LOST' | 'TARGET'
+      inspectedId: null, // ID du pays déjà trouvé ou perdu verrouillé actuellement inspecté
+      targetId: null,    // ID du Pays Mystère (ou Pays Perdu à 0) actuellement ciblé
+      scoutId: null,     // ID du Pays Éclaireur (source active qui risque d'être grisée au 3e échec)
+      targetProgress: {}, // id -> { failures: 0, wrongGuesses: [], bonusIndices: [] }
+      bonusCounter: 0,   // 0..5 (non cumulable : plafonne à 5 tant que non consommé)
+      bonusReady: false,
+      totalDiscovered: 0,
+      totalLost: 0,
+      currentStreak: 0,
+      bestStreak: 0,
+      lastFailedTargetId: null
+    };
+
+    // Calcul du centroïde du polygone principal (évite que la Guyane décale le nom "France" sur l'Espagne)
+    function computeMainLandmassCentroid(feat, pathGen) {
+      if (!feat || !feat.geometry) return [0, 0];
+      if (feat.geometry.type === 'Polygon') {
+        return pathGen.centroid(feat);
+      }
+      if (feat.geometry.type === 'MultiPolygon') {
+        let maxArea = -1;
+        let bestPoly = null;
+        feat.geometry.coordinates.forEach(coords => {
+          const polyFeature = { type: 'Feature', geometry: { type: 'Polygon', coordinates: coords } };
+          const area = pathGen.area(polyFeature);
+          if (area > maxArea) {
+            maxArea = area;
+            bestPoly = polyFeature;
+          }
+        });
+        if (bestPoly) {
+          return pathGen.centroid(bestPoly);
+        }
+      }
+      return pathGen.centroid(feat);
+    }
+
+    // Normalisation d'une chaîne pour comparaison souple (sans accents, tirets, casse)
+    function normalizeText(str) {
+      if (!str) return "";
+      return str
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/['’\-_.]/g, " ")
+        .replace(/\b(le|la|les|l|du|de|des|d|et)\b/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function normalizeStrictLetters(str) {
+      if (!str) return "";
+      return str
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]/g, "");
+    }
+
+    function isGuessCorrect(userGuess, countryObj) {
+      const cleanGuess = normalizeText(userGuess);
+      const strictGuess = normalizeStrictLetters(userGuess);
+      if (!strictGuess) return false;
+
+      const candidates = [countryObj.name, ...(countryObj.aliases || [])];
+      for (const cand of candidates) {
+        if (normalizeText(cand) === cleanGuess || normalizeStrictLetters(cand) === strictGuess) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    /*************************************************************************
+     * 4. INITIALISATION DE LA CARTE VECTORIELLE D3 + TOPOJSON
+     *************************************************************************/
+    async function initMapApplication() {
+      svg = d3.select("#worldMapSvg");
+      gRoot = d3.select("#mapRootGroup");
+      gMaritime = d3.select("#maritimeGroup");
+      gCountries = d3.select("#countriesGroup");
+      gBeam = d3.select("#beamGroup");
+      gLabels = d3.select("#labelsGroup");
+
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+
+      const projection = d3.geoNaturalEarth1()
+        .scale(width / 5.4)
+        .translate([width / 2, height / 2]);
+
+      pathGenerator = d3.geoPath().projection(projection);
+
+      // Graticule subtil de vieille carte marine
+      const graticule = d3.geoGraticule();
+      d3.select("#graticuleGroup")
+        .append("path")
+        .datum(graticule())
+        .attr("d", pathGenerator)
+        .attr("fill", "none")
+        .attr("stroke", "rgba(56, 189, 248, 0.045)")
+        .attr("stroke-width", "0.6px");
+
+      // Zoom et Pan fluides
+      zoomBehavior = d3.zoom()
+        .scaleExtent([0.85, 18])
+        .on("zoom", (event) => {
+          gRoot.attr("transform", event.transform);
+        });
+
+      svg.call(zoomBehavior).on("dblclick.zoom", null);
+
+      try {
+        const worldData = await d3.json("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json");
+        const geoFeatures = topojson.feature(worldData, worldData.objects.countries).features;
+
+        // Indexer les géométries présentes sur la carte
+        geoFeatures.forEach(feat => {
+          const id = String(feat.id).padStart(3, "0");
+          feat.normId = id;
+          if (RAW_COUNTRIES[id]) {
+            mapFeaturesById[id] = feat;
+            centroidsById[id] = computeMainLandmassCentroid(feat, pathGenerator);
+            COUNTRIES[id] = {
+              id,
+              ...RAW_COUNTRIES[id],
+              neighbors: [...RAW_COUNTRIES[id].neighbors]
+            };
+          }
+        });
+
+        // Garantir la symétrie parfaite du graphe de frontières et filtrer les IDs valides
+        Object.keys(COUNTRIES).forEach(id => {
+          COUNTRIES[id].neighbors = COUNTRIES[id].neighbors.filter(nId => COUNTRIES[nId] && nId !== id);
+        });
+        Object.keys(COUNTRIES).forEach(id => {
+          COUNTRIES[id].neighbors.forEach(nId => {
+            if (!COUNTRIES[nId].neighbors.includes(id)) {
+              COUNTRIES[nId].neighbors.push(id);
+            }
+          });
+        });
+
+        // Dessiner les pays
+        gCountries.selectAll("path.country-path")
+          .data(geoFeatures.filter(f => COUNTRIES[f.normId]), d => d.normId)
+          .enter()
+          .append("path")
+          .attr("id", d => `country-${d.normId}`)
+          .attr("class", "country-path country-unknown")
+          .attr("d", pathGenerator)
+          .on("click", (event, d) => {
+            event.stopPropagation();
+            onCountryClickedOnMap(d.normId);
+          });
+
+      } catch (err) {
+        console.error("Erreur lors du chargement de la carte:", err);
+        showToast("Erreur réseau lors du chargement du fond de carte mondial.", "error");
+      }
+
+      window.addEventListener("resize", () => {
+        // Recalage doux au redimensionnement
+      });
+    }
+
+    /*************************************************************************
+     * 5. GESTION DES FRONTIÈRES, DES ÉCLAIREURS ET DES ÉTATS
+     *************************************************************************/
+    // Retourne la liste des pays Actifs (Illuminés, non grisés) qui touchent un pays donné
+    function getActiveScoutsFor(countryId) {
+      const c = COUNTRIES[countryId];
+      if (!c) return [];
+      return c.neighbors.filter(nId => gameState.countryStates[nId] === 'ACTIVE');
+    }
+
+    // Retourne la liste des pays actuellement trouvés (Illuminés) qui touchent un pays à trouver
+    function getDiscoveredNeighborsFor(countryId) {
+      const c = COUNTRIES[countryId];
+      if (!c) return [];
+      return c.neighbors.filter(nId => gameState.countryStates[nId] === 'ACTIVE');
+    }
+
+    // Un pays peut être ciblé pour être deviné s'il est :
+    // 1) UNKNOWN et touche au moins 1 pays ACTIVE
+    // 2) LOST (grisé) et son compte à rebours de 10 pays est arrivé à 0
+    function isCountryGuessableTarget(countryId) {
+      const st = gameState.countryStates[countryId];
+      if (st === 'UNKNOWN') {
+        return getActiveScoutsFor(countryId).length > 0;
+      }
+      if (st === 'LOST') {
+        const cd = gameState.lostCountdowns[countryId] ?? 10;
+        return cd <= 0;
+      }
+      return false;
+    }
+
+    // Liste des frontières mystères (UNKNOWN adjacents à ACTIVE) + pays LOST dont le compte à rebours est à 0
+    function getAccessibleMysteryFrontiers() {
+      const frontiers = [];
+      Object.keys(COUNTRIES).forEach(id => {
+        if (isCountryGuessableTarget(id)) {
+          frontiers.push(id);
+        }
+      });
+      return frontiers;
+    }
+
+    function ensureTargetProgress(countryId) {
+      if (!gameState.targetProgress[countryId]) {
+        gameState.targetProgress[countryId] = {
+          failures: 0,
+          wrongGuesses: [],
+          bonusIndices: [] // Positions de lettres révélées par le bonus de convergence
+        };
+      }
+      return gameState.targetProgress[countryId];
+    }
+
+    /*************************************************************************
+     * 6. DÉMARRAGE D'UNE NOUVELLE EXPÉDITION
+     *************************************************************************/
+    function openNewGameModal() {
+      const modal = document.getElementById('modalNewGame');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      if (gameState.status === 'PLAYING') {
+        document.getElementById('btnCloseNewGame').classList.remove('hidden');
+      }
+    }
+
+    function closeNewGameModal() {
+      const modal = document.getElementById('modalNewGame');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    function startNewExpedition(regionFilter = 'ALL') {
+      closeNewGameModal();
+      document.getElementById('modalGameOver').classList.add('hidden');
+      document.getElementById('modalGameOver').classList.remove('flex');
+
+      // Réinitialiser l'état
+      Object.keys(COUNTRIES).forEach(id => {
+        gameState.countryStates[id] = 'UNKNOWN';
+      });
+      gameState.lostCountdowns = {};
+      gameState.viewMode = 'DISCOVERED';
+      gameState.inspectedId = null;
+      gameState.targetId = null;
+      gameState.scoutId = null;
+      gameState.targetProgress = {};
+      gameState.bonusCounter = 0;
+      gameState.bonusReady = false;
+      gameState.totalDiscovered = 1;
+      gameState.totalLost = 0;
+      gameState.currentStreak = 0;
+      gameState.bestStreak = 0;
+      gameState.lastFailedTargetId = null;
+      gameState.status = 'PLAYING';
+
+      // Choisir le pays de départ
+      let startId = "250"; // France par défaut
+      if (regionFilter === 'FRANCE' && COUNTRIES["250"]) {
+        startId = "250";
+      } else {
+        const candidates = Object.values(COUNTRIES).filter(c => {
+          const enoughBorders = c.neighbors.length >= 3;
+          const matchesRegion = regionFilter === 'ALL' || c.region === regionFilter;
+          return enoughBorders && matchesRegion;
+        });
+        if (candidates.length > 0) {
+          startId = candidates[Math.floor(Math.random() * candidates.length)].id;
+        }
+      }
+
+      // Illuminer le pays de départ
+      gameState.countryStates[startId] = 'ACTIVE';
+      gameState.inspectedId = startId;
+      gameState.viewMode = 'DISCOVERED';
+
+      playSound('discover');
+      const startCountry = COUNTRIES[startId];
+      showToast(`Expédition lancée depuis : ${startCountry.name}`, "gold");
+      showDiscoveredCard(startCountry);
+
+      updateAllVisuals();
+      focusMapOnCountry(startId, 3.6);
+    }
+
+    /*************************************************************************
+     * 7. CLIC SUR UN PAYS DE LA CARTE (SÉPARATION STRICTE TROUVÉ / PERDU / MYSTÈRE)
+     *************************************************************************/
+    function onCountryClickedOnMap(countryId) {
+      const state = gameState.countryStates[countryId];
+
+      // CAS 1 : Clic sur un pays DÉJÀ TROUVÉ (ACTIVE) -> Impossible de tenter de deviner son nom !
+      if (state === 'ACTIVE') {
+        gameState.targetId = null;
+        gameState.inspectedId = countryId;
+        gameState.viewMode = 'DISCOVERED';
+        playSound('select');
+        showDiscoveredCard(COUNTRIES[countryId]);
+        updateAllVisuals();
+        return;
+      }
+
+      // CAS 2 : Clic sur un pays PERDU / GRISÉ (LOST)
+      if (state === 'LOST') {
+        const remaining = gameState.lostCountdowns[countryId] ?? 10;
+        if (remaining > 0) {
+          // Compte à rebours non terminé : saisie verrouillée !
+          gameState.targetId = null;
+          gameState.inspectedId = countryId;
+          gameState.viewMode = 'LOCKED_LOST';
+          playSound('fail');
+          showToast(`Pays englouti : trouvez encore ${remaining} ${remaining > 1 ? 'pays' : 'pays'} avant de pouvoir retenter son nom.`, "warn");
+          updateAllVisuals();
+          return;
+        } else {
+          // Compte à rebours arrivé à 0 : on peut retenter de trouver son nom !
+          selectMysteryTarget(countryId);
+          return;
+        }
+      }
+
+      // CAS 3 : Clic sur une Frontière Mystère (UNKNOWN accessible)
+      if (state === 'UNKNOWN' && isCountryGuessableTarget(countryId)) {
+        selectMysteryTarget(countryId);
+      }
+    }
+
+    function selectNextFrontierFromInspected() {
+      if (gameState.inspectedId && gameState.countryStates[gameState.inspectedId] === 'ACTIVE') {
+        const c = COUNTRIES[gameState.inspectedId];
+        const neighbors = c.neighbors.filter(nId => isCountryGuessableTarget(nId));
+        if (neighbors.length > 0) {
+          selectMysteryTarget(neighbors[0], gameState.inspectedId);
+          return;
+        }
+      }
+      selectNextFrontier();
+    }
+
+    function selectMysteryTarget(targetId, preferredScoutId = null) {
+      if (!isCountryGuessableTarget(targetId)) return;
+
+      const activeScouts = getActiveScoutsFor(targetId);
+      gameState.targetId = targetId;
+      gameState.inspectedId = null;
+      gameState.viewMode = 'TARGET';
+
+      if (preferredScoutId && activeScouts.includes(preferredScoutId)) {
+        gameState.scoutId = preferredScoutId;
+      } else if (activeScouts.length > 0) {
+        if (!gameState.scoutId || !activeScouts.includes(gameState.scoutId)) {
+          gameState.scoutId = activeScouts[0];
+        }
+      } else {
+        // Cas rare : reconquête d'un pays LOST à 0 dont les voisins sont eux-mêmes grisés
+        gameState.scoutId = targetId;
+      }
+
+      ensureTargetProgress(targetId);
+      playSound('select');
+      updateAllVisuals();
+
+      if (gameState.scoutId && gameState.scoutId !== targetId) {
+        focusPairOnMap(gameState.scoutId, gameState.targetId);
+      } else {
+        focusMapOnCountry(gameState.targetId, 4.0);
+      }
+
+      const input = document.getElementById('countryGuessInput');
+      input.value = '';
+      setTimeout(() => input.focus(), 50);
+    }
+
+    function onScoutManualChange(newScoutId) {
+      if (gameState.targetId && getActiveScoutsFor(gameState.targetId).includes(newScoutId)) {
+        gameState.scoutId = newScoutId;
+        playSound('select');
+        updateAllVisuals();
+        document.getElementById('countryGuessInput').focus();
+      }
+    }
+
+    function selectNextFrontier() {
+      const frontiers = getAccessibleMysteryFrontiers();
+      if (frontiers.length === 0) return;
+      if (!gameState.targetId || !frontiers.includes(gameState.targetId)) {
+        selectMysteryTarget(frontiers[0]);
+      } else {
+        const idx = frontiers.indexOf(gameState.targetId);
+        const nextId = frontiers[(idx + 1) % frontiers.length];
+        selectMysteryTarget(nextId);
+      }
+    }
+
+    /*************************************************************************
+     * 8. MÉCANIQUE DU MASQUE DE LETTRES & DES 3 ESSAIS + BONUS
+     *************************************************************************/
+    // Génère l'affichage du masque du pays selon les échecs (0, 1, 2) et les lettres de bonus
+    function buildMaskForTarget(countryId) {
+      const country = COUNTRIES[countryId];
+      const prog = ensureTargetProgress(countryId);
+      const name = country.name;
+      const chars = Array.from(name);
+      const isReclaimingLost = gameState.countryStates[countryId] === 'LOST';
+
+      // Compter le nombre de vraies lettres (hors espaces, tirets, apostrophes)
+      const letterPositions = [];
+      chars.forEach((ch, idx) => {
+        if (/[a-zA-ZÀ-ÿœŒ]/.test(ch)) {
+          letterPositions.push(idx);
+        }
+      });
+
+      const totalLetters = letterPositions.length;
+      const hasLengthRevealed = prog.failures >= 1 || prog.bonusIndices.length > 0;
+      const hasFirstLetterRevealed = prog.failures >= 2;
+
+      if (!hasLengthRevealed) {
+        return {
+          maskedText: isReclaimingLost ? "RECONQUÊTE DU TERRITOIRE" : "TERRITOIRE MYSTÈRE",
+          totalLetters,
+          showLetterPill: false,
+          bannerText: isReclaimingLost
+            ? "Compte à rebours terminé — Retentez de trouver le nom de ce pays"
+            : "Essai 1 sur 3 — Entrez le nom de ce pays frontalier"
+        };
+      }
+
+      // Construire le masque caractère par caractère
+      const firstLetterCharIdx = letterPositions[0];
+      const pieces = chars.map((ch, idx) => {
+        if (!/[a-zA-ZÀ-ÿœŒ]/.test(ch)) {
+          return ch === ' ' ? '   ' : ` ${ch} `;
+        }
+        const isFirstAndRevealed = hasFirstLetterRevealed && idx === firstLetterCharIdx;
+        const isBonusRevealed = prog.bonusIndices.includes(idx);
+
+        if (isFirstAndRevealed || isBonusRevealed) {
+          return ch.toUpperCase();
+        }
+        return "_";
+      });
+
+      let bannerText = "";
+      if (prog.failures === 0 && prog.bonusIndices.length > 0) {
+        bannerText = `Indice de Convergence actif — ${prog.bonusIndices.length} ${prog.bonusIndices.length > 1 ? 'lettres révélées' : 'lettre révélée'}`;
+      } else if (prog.failures === 1) {
+        bannerText = `1er échec — Nombre de lettres ajouté : ${totalLetters} lettres`;
+      } else if (prog.failures >= 2) {
+        const scoutName = COUNTRIES[gameState.scoutId]?.name || "votre pays Éclaireur";
+        bannerText = `2e échec — Première lettre ajoutée ! Dernier essai avant de perdre ${scoutName} !`;
+      }
+
+      return {
+        maskedText: pieces.join(" "),
+        totalLetters,
+        showLetterPill: true,
+        bannerText
+      };
+    }
+
+    /*************************************************************************
+     * 9. VALIDATION D'UNE PROPOSITION (SYSTÈME DES 3 ESSAIS & COMPTE À REBOURS 10 PAYS)
+     *************************************************************************/
+    function handleGuessSubmit(event) {
+      event.preventDefault();
+      if (gameState.status !== 'PLAYING' || gameState.viewMode !== 'TARGET' || !gameState.targetId) return;
+
+      // Sécurité absolue : si le pays est déjà trouvé (ACTIVE), on ne fait rien
+      if (gameState.countryStates[gameState.targetId] === 'ACTIVE') return;
+
+      const input = document.getElementById('countryGuessInput');
+      const rawGuess = input.value.trim();
+      if (!rawGuess) return;
+
+      const targetCountry = COUNTRIES[gameState.targetId];
+      const scoutCountry = COUNTRIES[gameState.scoutId] || targetCountry;
+      const prog = ensureTargetProgress(gameState.targetId);
+
+      if (isGuessCorrect(rawGuess, targetCountry)) {
+        // ================== BONNE RÉPONSE : PAYS ILLUMINÉ ! ==================
+        input.value = '';
+        const wasLost = gameState.countryStates[gameState.targetId] === 'LOST';
+
+        // Illuminer le pays trouvé
+        gameState.countryStates[gameState.targetId] = 'ACTIVE';
+        delete gameState.lostCountdowns[gameState.targetId];
+        delete gameState.targetProgress[gameState.targetId];
+
+        if (!wasLost) {
+          gameState.totalDiscovered++;
+        } else {
+          gameState.totalLost = Math.max(0, gameState.totalLost - 1);
+        }
+
+        // Décrémenter de 1 le compte à rebours de TOUS les pays actuellement perdus (grisés)
+        Object.keys(gameState.lostCountdowns).forEach(lostId => {
+          if (gameState.countryStates[lostId] === 'LOST' && gameState.lostCountdowns[lostId] > 0) {
+            gameState.lostCountdowns[lostId] = Math.max(0, gameState.lostCountdowns[lostId] - 1);
+            if (gameState.lostCountdowns[lostId] === 0) {
+              showToast(`⏳ Un territoire englouti a terminé son compte à rebours et peut être retenté !`, "cyan");
+            }
+          }
+        });
+
+        gameState.currentStreak++;
+        if (gameState.currentStreak > gameState.bestStreak) {
+          gameState.bestStreak = gameState.currentStreak;
+        }
+
+        // Progression de la jauge du Bonus de 5 pays (NON CUMULABLE : ne charge que si non prêt)
+        if (!gameState.bonusReady) {
+          gameState.bonusCounter++;
+          if (gameState.bonusCounter >= 5) {
+            gameState.bonusCounter = 5;
+            gameState.bonusReady = true;
+            playSound('bonus');
+            showToast("✨ Indice de Convergence prêt !", "cyan");
+          } else {
+            playSound('discover');
+          }
+        } else {
+          playSound('discover');
+        }
+
+        showToast(`✨ ${targetCountry.name} illuminé !`, "gold");
+        showDiscoveredCard(targetCountry);
+
+        const newlyDiscoveredId = gameState.targetId;
+        const allFrontiers = getAccessibleMysteryFrontiers();
+
+        if (allFrontiers.length === 0) {
+          const anyLockedLost = Object.keys(COUNTRIES).some(id => gameState.countryStates[id] === 'LOST');
+          if (!anyLockedLost) {
+            gameState.targetId = null;
+            gameState.scoutId = null;
+            gameState.viewMode = 'IDLE';
+            updateAllVisuals();
+            triggerEndExpedition(true);
+            return;
+          }
+        }
+
+        // Afficher le pays qui vient d'être trouvé en mode "Déjà trouvé" (sans saisie) ou cibler la frontière suivante
+        gameState.targetId = null;
+        gameState.inspectedId = newlyDiscoveredId;
+        gameState.viewMode = 'DISCOVERED';
+        updateAllVisuals();
+
+      } else {
+        // ================== MAUVAISE RÉPONSE ==================
+        input.value = '';
+        gameState.currentStreak = 0;
+        if (!prog.wrongGuesses.includes(rawGuess)) {
+          prog.wrongGuesses.push(rawGuess);
+        }
+        prog.failures++;
+
+        // Animation de secousse du panneau
+        const panel = document.getElementById('panelActiveTarget');
+        panel.classList.remove('shake-anim');
+        void panel.offsetWidth;
+        panel.classList.add('shake-anim');
+
+        if (prog.failures === 1) {
+          // 1er Échec : le nombre de lettres s'ajoute
+          playSound('fail');
+          showToast(`1er échec : Le nombre de lettres s'ajoute.`, "warn");
+          updateAllVisuals();
+        } else if (prog.failures === 2) {
+          // 2e Échec : la première lettre du pays s'ajoute
+          playSound('fail');
+          showToast(`2e échec : La première lettre s'ajoute ! Attention, ${scoutCountry.name} est en péril !`, "warn");
+          updateAllVisuals();
+        } else if (prog.failures >= 3) {
+          // 3e Échec : Le Pays Éclaireur se grise et tombe dans les ténèbres avec un compte à rebours de 10 pays !
+          playSound('lost');
+
+          const lostCountryId = gameState.scoutId || gameState.targetId;
+          const lostCountryName = COUNTRIES[lostCountryId]?.name || "Le territoire";
+
+          gameState.countryStates[lostCountryId] = 'LOST';
+          gameState.lostCountdowns[lostCountryId] = 10;
+
+          // Si on tentait déjà de reconquérir un pays LOST, son propre compte à rebours repart aussi à 10
+          if (gameState.countryStates[gameState.targetId] === 'LOST') {
+            gameState.lostCountdowns[gameState.targetId] = 10;
+          }
+
+          gameState.totalLost = Object.keys(COUNTRIES).filter(id => gameState.countryStates[id] === 'LOST').length;
+          gameState.lastFailedTargetId = gameState.targetId;
+
+          // Réinitialiser les essais sur la cible mystère et sur le pays perdu
+          prog.failures = 0;
+          prog.wrongGuesses = [];
+          if (gameState.targetProgress[lostCountryId]) {
+            gameState.targetProgress[lostCountryId].failures = 0;
+            gameState.targetProgress[lostCountryId].wrongGuesses = [];
+          }
+
+          showToast(`🌑 3e échec ! ${lostCountryName} se grise — Il faudra trouver 10 pays avant de pouvoir le retenter.`, "error");
+
+          // Vérifier s'il reste des pays actifs et des frontières accessibles
+          const remainingActive = Object.keys(COUNTRIES).filter(id => gameState.countryStates[id] === 'ACTIVE');
+          const remainingFrontiers = getAccessibleMysteryFrontiers();
+
+          if (remainingActive.length === 0 || remainingFrontiers.length === 0) {
+            gameState.targetId = null;
+            gameState.scoutId = null;
+            gameState.viewMode = 'IDLE';
+            updateAllVisuals();
+            triggerEndExpedition(false);
+            return;
+          }
+
+          // Afficher le pays qui vient d'être grisé en mode verrouillé (compte à rebours 10)
+          gameState.targetId = null;
+          gameState.scoutId = null;
+          gameState.inspectedId = lostCountryId;
+          gameState.viewMode = 'LOCKED_LOST';
+          updateAllVisuals();
+        }
+      }
+    }
+
+    /*************************************************************************
+     * 10. MÉCANIQUE DU BONUS TOUS LES 5 PAYS ("INDICE DE CONVERGENCE")
+     *************************************************************************/
+    function useConvergenceBonus() {
+      if (!gameState.bonusReady || !gameState.targetId || gameState.status !== 'PLAYING') return;
+
+      const targetId = gameState.targetId;
+      const country = COUNTRIES[targetId];
+      const prog = ensureTargetProgress(targetId);
+
+      // Compter combien de pays déjà découverts (Actifs ou Engloutis) touchent ce pays à trouver
+      const discoveredNeighbors = getDiscoveredNeighborsFor(targetId);
+      const lettersToRevealCount = Math.max(1, discoveredNeighbors.length);
+
+      // Identifier toutes les positions de lettres dans le nom du pays
+      const chars = Array.from(country.name);
+      const allLetterIndices = [];
+      chars.forEach((ch, idx) => {
+        if (/[a-zA-ZÀ-ÿœŒ]/.test(ch)) {
+          allLetterIndices.push(idx);
+        }
+      });
+
+      const firstCharIdx = allLetterIndices[0];
+      const alreadyRevealed = new Set(prog.bonusIndices);
+      if (prog.failures >= 2) {
+        alreadyRevealed.add(firstCharIdx);
+      }
+
+      // Pour respecter strictement la règle : "les lettres révélées ne sont pas dans l'ordre (ex: _r__ce et non fra___)",
+      // on privilégie d'abord les lettres qui ne sont PAS la toute première lettre (sauf s'il ne reste qu'elle)
+      let poolNonFirst = allLetterIndices.filter(idx => idx !== firstCharIdx && !alreadyRevealed.has(idx));
+      let poolFirst = allLetterIndices.filter(idx => idx === firstCharIdx && !alreadyRevealed.has(idx));
+
+      // Mélanger aléatoirement (Fisher-Yates)
+      for (let i = poolNonFirst.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [poolNonFirst[i], poolNonFirst[j]] = [poolNonFirst[j], poolNonFirst[i]];
+      }
+
+      const candidatePool = [...poolNonFirst, ...poolFirst];
+      const chosenIndices = candidatePool.slice(0, lettersToRevealCount);
+
+      chosenIndices.forEach(idx => {
+        if (!prog.bonusIndices.includes(idx)) {
+          prog.bonusIndices.push(idx);
+        }
+      });
+
+      // Consommer le bonus : le compteur repart à 0/5 !
+      gameState.bonusReady = false;
+      gameState.bonusCounter = 0;
+
+      playSound('bonus');
+      showToast(
+        `💡 Indice de Convergence utilisé : ${chosenIndices.length} ${chosenIndices.length > 1 ? 'lettres révélées' : 'lettre révélée'} grâce à vos ${discoveredNeighbors.length} pays voisins découverts !`,
+        "cyan"
+      );
+
+      updateAllVisuals();
+      document.getElementById('countryGuessInput').focus();
+    }
+
+    /*************************************************************************
+     * 11. MISE À JOUR COMPLÈTE DE L'INTERFACE & DE LA CARTE
+     *************************************************************************/
+    function updateAllVisuals() {
+      const frontiers = getAccessibleMysteryFrontiers();
+      const activeIds = Object.keys(COUNTRIES).filter(id => gameState.countryStates[id] === 'ACTIVE');
+      const lostIds = Object.keys(COUNTRIES).filter(id => gameState.countryStates[id] === 'LOST');
+
+      // 1. Mise à jour des classes SVG des pays
+      gCountries.selectAll("path.country-path")
+        .attr("class", d => {
+          const id = d.normId;
+          const st = gameState.countryStates[id];
+          if (st === 'ACTIVE') {
+            return (id === gameState.scoutId && gameState.viewMode === 'TARGET') || id === gameState.inspectedId
+              ? "country-path country-active country-scout"
+              : "country-path country-active";
+          }
+          if (id === gameState.targetId && gameState.viewMode === 'TARGET') {
+            return "country-path country-target";
+          }
+          if (st === 'LOST') {
+            const cd = gameState.lostCountdowns[id] ?? 10;
+            return cd <= 0
+              ? "country-path country-mystery"
+              : "country-path country-lost";
+          }
+          if (frontiers.includes(id)) {
+            return "country-path country-mystery";
+          }
+          return "country-path country-unknown";
+        })
+        .style("opacity", d => {
+          const id = d.normId;
+          const st = gameState.countryStates[id];
+          if (st === 'UNKNOWN' && !frontiers.includes(id) && id !== gameState.targetId) {
+            return showWorldFogSilhouettes ? 0.55 : 0.08;
+          }
+          return 1;
+        });
+
+      // 2. Dessiner uniquement le faisceau lumineux entre l'Éclaireur et la Cible (suppression du bruit visuel)
+      gMaritime.selectAll("*").remove();
+      gBeam.selectAll("*").remove();
+      if (gameState.viewMode === 'TARGET' && gameState.targetId && gameState.scoutId && gameState.targetId !== gameState.scoutId) {
+        const cScout = centroidsById[gameState.scoutId];
+        const cTarget = centroidsById[gameState.targetId];
+        if (cScout && cTarget && Math.hypot(cTarget[0] - cScout[0], cTarget[1] - cScout[1]) < 450) {
+          gBeam.append("line")
+            .attr("class", "scout-beam-bg")
+            .attr("x1", cScout[0]).attr("y1", cScout[1])
+            .attr("x2", cTarget[0]).attr("y2", cTarget[1]);
+
+          gBeam.append("line")
+            .attr("class", "scout-beam-line")
+            .attr("x1", cScout[0]).attr("y1", cScout[1])
+            .attr("x2", cTarget[0]).attr("y2", cTarget[1]);
+
+          gBeam.append("circle")
+            .attr("cx", cTarget[0]).attr("cy", cTarget[1])
+            .attr("r", 3.2)
+            .attr("fill", "#38bdf8")
+            .attr("stroke", "#ffffff")
+            .attr("stroke-width", 1);
+        }
+      }
+
+      // 3. Étiquettes ÉPURÉES sur la carte :
+      //    - Pays ACTIVE (trouvés) : UNIQUEMENT le nom du pays (sans parenthèses ni numéros)
+      //    - Pays LOST (perdus/grisés) : UNIQUEMENT le compte à rebours (10..0)
+      //    - Pays UNKNOWN / Mystères : AUCUN texte sur la carte
+      gLabels.selectAll("*").remove();
+      Object.keys(COUNTRIES).forEach(id => {
+        const st = gameState.countryStates[id];
+        const c = centroidsById[id];
+        if (!c || isNaN(c[0]) || isNaN(c[1])) return;
+
+        if (st === 'ACTIVE') {
+          gLabels.append("text")
+            .attr("x", c[0])
+            .attr("y", c[1])
+            .attr("text-anchor", "middle")
+            .attr("dominant-baseline", "central")
+            .attr("pointer-events", "none")
+            .attr("font-family", "Inter, sans-serif")
+            .attr("font-weight", "700")
+            .attr("font-size", "5.2px")
+            .attr("fill", "#090d16")
+            .attr("stroke", "rgba(254, 240, 138, 0.85)")
+            .attr("stroke-width", "1.4px")
+            .attr("paint-order", "stroke")
+            .text(COUNTRIES[id].name);
+        } else if (st === 'LOST') {
+          const cd = gameState.lostCountdowns[id] ?? 10;
+          gLabels.append("circle")
+            .attr("cx", c[0])
+            .attr("cy", c[1])
+            .attr("r", 5.2)
+            .attr("fill", cd <= 0 ? "#0f172a" : "#18181b")
+            .attr("stroke", cd <= 0 ? "#38bdf8" : "#ef4444")
+            .attr("stroke-width", "0.9px")
+            .attr("pointer-events", "none");
+
+          gLabels.append("text")
+            .attr("x", c[0])
+            .attr("y", c[1])
+            .attr("text-anchor", "middle")
+            .attr("dominant-baseline", "central")
+            .attr("pointer-events", "none")
+            .attr("font-family", "JetBrains Mono, monospace")
+            .attr("font-weight", "700")
+            .attr("font-size", "5.2px")
+            .attr("fill", cd <= 0 ? "#38bdf8" : "#fca5a5")
+            .text(String(cd));
+        }
+      });
+
+      // 4. Compteurs HUD supérieurs
+      document.getElementById('statActiveCount').textContent = activeIds.length;
+      document.getElementById('statLostCount').textContent = lostIds.length;
+      document.getElementById('statFrontierCount').textContent = frontiers.length;
+      document.getElementById('codexBadgeCount').textContent = activeIds.length + lostIds.length;
+
+      // 5. Jauge du Bonus de Convergence (5 pays, non cumulable, sans parenthèses)
+      const segments = document.getElementById('bonusSegments').children;
+      for (let i = 0; i < 5; i++) {
+        if (gameState.bonusReady || i < gameState.bonusCounter) {
+          segments[i].className = "w-4 sm:w-5 h-1.5 rounded-full bg-amberGlow border border-yellow-200 shadow-[0_0_8px_#f5d061] transition-all duration-300";
+        } else {
+          segments[i].className = "w-4 sm:w-5 h-1.5 rounded-full bg-slate-800 border border-slate-700 transition-all duration-300";
+        }
+      }
+
+      const bonusText = document.getElementById('bonusGaugeText');
+      const btnBonus = document.getElementById('btnUseBonus');
+      const btnBonusLabel = document.getElementById('btnUseBonusLabel');
+
+      if (gameState.bonusReady) {
+        bonusText.textContent = "PRÊT";
+        bonusText.className = "text-[10px] font-mono font-bold text-emerald-400 animate-pulse";
+        btnBonus.disabled = !(gameState.viewMode === 'TARGET' && gameState.targetId);
+        btnBonusLabel.textContent = "Utiliser l'indice";
+      } else {
+        bonusText.textContent = `${gameState.bonusCounter} / 5`;
+        bonusText.className = "text-[10px] font-mono font-bold text-amberGlow";
+        btnBonus.disabled = true;
+        btnBonusLabel.textContent = "En charge";
+      }
+
+      // 6. Carte latérale droite : uniquement visible s'il y a des pays perdus (grisés) avec leur compte à rebours
+      const lostCard = document.getElementById('lostCountriesCard');
+      const lostList = document.getElementById('lostQuickList');
+      if (lostIds.length === 0) {
+        lostCard.classList.add('hidden');
+      } else {
+        lostCard.classList.remove('hidden');
+        document.getElementById('lostListBadge').textContent = `${lostIds.length}`;
+        lostList.innerHTML = '';
+        lostIds.forEach(lId => {
+          const cd = gameState.lostCountdowns[lId] ?? 10;
+          const btn = document.createElement('button');
+          btn.className = `w-full text-left px-2.5 py-1.5 rounded-lg text-xs transition flex items-center justify-between gap-2 border ${
+            cd <= 0
+              ? 'bg-sky-500/20 border-sky-400 text-sky-200 font-semibold'
+              : 'bg-zinc-900/80 border-zinc-800 text-zinc-300 hover:bg-zinc-800'
+          }`;
+          btn.onclick = () => {
+            focusMapOnCountry(lId, 4.0);
+            onCountryClickedOnMap(lId);
+          };
+          btn.innerHTML = `
+            <span class="truncate">${cd <= 0 ? 'Prêt à retenter' : 'Territoire grisé'}</span>
+            <span class="font-mono font-bold text-xs px-2 py-0.5 rounded ${cd <= 0 ? 'bg-sky-500/30 text-sky-300' : 'bg-rose-500/20 text-rose-300'}">${cd}</span>
+          `;
+          lostList.appendChild(btn);
+        });
+      }
+
+      // 7. Panneau inférieur selon le mode actif (IDLE / DISCOVERED / LOCKED_LOST / TARGET)
+      const panelIdle = document.getElementById('panelIdleState');
+      const panelDiscovered = document.getElementById('panelDiscoveredState');
+      const panelLockedLost = document.getElementById('panelLockedLostState');
+      const panelActive = document.getElementById('panelActiveTarget');
+
+      panelIdle.classList.add('hidden');
+      panelDiscovered.classList.add('hidden');
+      panelDiscovered.classList.remove('flex');
+      panelLockedLost.classList.add('hidden');
+      panelLockedLost.classList.remove('flex');
+      panelActive.classList.add('hidden');
+
+      if (gameState.viewMode === 'DISCOVERED' && gameState.inspectedId && COUNTRIES[gameState.inspectedId]) {
+        // Pays déjà trouvé : AUCUN champ de saisie, impossible de faire un échec
+        const c = COUNTRIES[gameState.inspectedId];
+        document.getElementById('inspectedCountryName').textContent = c.name;
+        document.getElementById('inspectedCountryMeta').textContent =
+          `Capitale : ${c.capital} • Continent : ${c.region} • Cliquez sur un pays voisin en pointillés bleus pour deviner son nom.`;
+        panelDiscovered.classList.remove('hidden');
+        panelDiscovered.classList.add('flex');
+
+      } else if (gameState.viewMode === 'LOCKED_LOST' && gameState.inspectedId) {
+        // Pays perdu (grisé) avec compte à rebours > 0 : saisie verrouillée
+        const cd = gameState.lostCountdowns[gameState.inspectedId] ?? 10;
+        document.getElementById('lockedLostCountdownBadge').textContent = String(cd);
+        document.getElementById('lockedLostMessage').textContent =
+          `Ce territoire a été perdu. Trouvez encore ${cd} ${cd > 1 ? 'pays' : 'pays'} pour pouvoir retenter de trouver son nom.`;
+        panelLockedLost.classList.remove('hidden');
+        panelLockedLost.classList.add('flex');
+
+      } else if (gameState.viewMode === 'TARGET' && gameState.targetId && COUNTRIES[gameState.targetId]) {
+        // Pays mystère (ou pays grisé dont le compte à rebours est à 0) : saisie active
+        panelActive.classList.remove('hidden');
+
+        const targetCountry = COUNTRIES[gameState.targetId];
+        const prog = ensureTargetProgress(gameState.targetId);
+        const activeScouts = getActiveScoutsFor(gameState.targetId);
+        const discNeighbors = getDiscoveredNeighborsFor(gameState.targetId);
+
+        const selectEl = document.getElementById('scoutSelectDropdown');
+        selectEl.innerHTML = '';
+        if (activeScouts.length > 0) {
+          activeScouts.forEach(sId => {
+            const opt = document.createElement('option');
+            opt.value = sId;
+            opt.textContent = COUNTRIES[sId].name;
+            opt.className = "bg-slate-900 text-amberGlow";
+            if (sId === gameState.scoutId) opt.selected = true;
+            selectEl.appendChild(opt);
+          });
+          selectEl.disabled = false;
+        } else {
+          const opt = document.createElement('option');
+          opt.value = gameState.targetId;
+          opt.textContent = "Reconquête directe";
+          selectEl.appendChild(opt);
+          selectEl.disabled = true;
+        }
+
+        document.getElementById('targetRegionHint').textContent = `• Continent : ${targetCountry.region}`;
+        const nCount = Math.max(1, discNeighbors.length);
+        document.getElementById('convergenceCountText').textContent =
+          `${nCount} ${nCount > 1 ? 'voisins trouvés' : 'voisin trouvé'} = ${nCount} ${nCount > 1 ? 'lettres avec indice' : 'lettre avec indice'}`;
+
+        // Flammes des 3 essais
+        const triesRemaining = 3 - prog.failures;
+        document.getElementById('attemptLabelText').textContent = `Essai ${prog.failures + 1} sur 3`;
+        document.getElementById('flame1').className = `w-4 h-4 ${triesRemaining >= 1 ? 'flame-active' : 'flame-lost'}`;
+        document.getElementById('flame2').className = `w-4 h-4 ${triesRemaining >= 2 ? 'flame-active' : 'flame-lost'}`;
+        document.getElementById('flame3').className = `w-4 h-4 ${triesRemaining >= 3 ? 'flame-active' : 'flame-lost'}`;
+
+        // Masque de lettres (_ R _ _ C E)
+        const maskInfo = buildMaskForTarget(gameState.targetId);
+        document.getElementById('letterMaskDisplay').textContent = maskInfo.maskedText;
+        document.getElementById('hintStatusBanner').textContent = maskInfo.bannerText;
+        document.getElementById('hintStatusBanner').className =
+          prog.failures >= 2
+            ? "text-[11px] font-semibold text-rose-400 mb-1 animate-pulse"
+            : "text-[11px] font-medium text-slate-400 mb-1";
+
+        const pill = document.getElementById('letterCountPill');
+        if (maskInfo.showLetterPill) {
+          pill.textContent = `${maskInfo.totalLetters} lettres`;
+          pill.classList.remove('hidden');
+        } else {
+          pill.classList.add('hidden');
+        }
+
+        // Historique des mauvaises réponses sur cette cible
+        const wrongBox = document.getElementById('wrongGuessesContainer');
+        wrongBox.innerHTML = '';
+        if (prog.wrongGuesses.length > 0) {
+          prog.wrongGuesses.forEach(wg => {
+            const span = document.createElement('span');
+            span.className = "px-2 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 line-through text-rose-300";
+            span.textContent = wg;
+            wrongBox.appendChild(span);
+          });
+        }
+      } else {
+        panelIdle.classList.remove('hidden');
+      }
+    }
+
+    /*************************************************************************
+     * 12. CONTRÔLES DE CAMÉRA & NAVIGATION CARTOGRAPHIQUE
+     *************************************************************************/
+    function zoomMap(factor) {
+      svg.transition().duration(350).call(zoomBehavior.scaleBy, factor);
+    }
+
+    function focusMapOnCountry(countryId, scale = 3.5) {
+      const c = centroidsById[countryId];
+      if (!c || isNaN(c[0]) || isNaN(c[1])) return;
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      svg.transition()
+        .duration(750)
+        .call(
+          zoomBehavior.transform,
+          d3.zoomIdentity
+            .translate(width / 2, height / 2 - 30)
+            .scale(scale)
+            .translate(-c[0], -c[1])
+        );
+    }
+
+    function focusPairOnMap(scoutId, targetId) {
+      const c1 = centroidsById[scoutId];
+      const c2 = centroidsById[targetId];
+      if (!c1 || !c2 || isNaN(c1[0]) || isNaN(c2[0])) return;
+
+      const midX = (c1[0] + c2[0]) / 2;
+      const midY = (c1[1] + c2[1]) / 2;
+      const dist = Math.hypot(c2[0] - c1[0], c2[1] - c1[1]);
+
+      let targetScale = 4.2;
+      if (dist > 180) targetScale = 2.0;
+      else if (dist > 90) targetScale = 2.8;
+      else if (dist < 25) targetScale = 6.2;
+
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+
+      svg.transition()
+        .duration(650)
+        .call(
+          zoomBehavior.transform,
+          d3.zoomIdentity
+            .translate(width / 2, height / 2 - 35)
+            .scale(targetScale)
+            .translate(-midX, -midY)
+        );
+    }
+
+    function centerOnActiveFront() {
+      if (gameState.targetId && gameState.scoutId) {
+        focusPairOnMap(gameState.scoutId, gameState.targetId);
+      } else {
+        const activeIds = Object.keys(COUNTRIES).filter(id => gameState.countryStates[id] === 'ACTIVE');
+        if (activeIds.length > 0) {
+          focusMapOnCountry(activeIds[activeIds.length - 1], 3.5);
+        }
+      }
+    }
+
+    function toggleFogVisibility() {
+      showWorldFogSilhouettes = !showWorldFogSilhouettes;
+      updateAllVisuals();
+      showToast(
+        showWorldFogSilhouettes
+          ? "Silhouettes continentales affichées dans la pénombre."
+          : "Brouillard abyssal total activé.",
+        "info"
+      );
+    }
+
+    /*************************************************************************
+     * 13. MODALES (CODEX, RÈGLES, FIN D'EXPÉDITION) & NOTIFICATIONS
+     *************************************************************************/
+    function showDiscoveredCard(country) {
+      const card = document.getElementById('lastDiscoveredCard');
+      document.getElementById('lastDiscoveredName').textContent = country.name;
+      document.getElementById('lastDiscoveredMeta').textContent =
+        `Capitale : ${country.capital} • ${country.region}`;
+      card.classList.remove('hidden');
+    }
+
+    function showToast(message, type = "info") {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+
+      const styles = {
+        gold: "bg-slate-950/95 border-amber-400 text-amberGlow shadow-[0_0_20px_rgba(245,208,97,0.3)]",
+        cyan: "bg-slate-950/95 border-sky-400 text-sky-300 shadow-[0_0_20px_rgba(56,189,248,0.3)]",
+        warn: "bg-slate-950/95 border-amber-500 text-amber-200",
+        error: "bg-rose-950/95 border-rose-500 text-rose-200 shadow-[0_0_20px_rgba(244,63,94,0.35)]",
+        info: "bg-slate-900/95 border-slate-700 text-slate-200"
+      };
+
+      toast.className = `px-4 py-2 rounded-xl border text-xs sm:text-sm font-medium transition-all duration-300 transform translate-y-0 opacity-100 ${styles[type] || styles.info}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-8px)';
+        setTimeout(() => toast.remove(), 300);
+      }, 3600);
+    }
+
+    function openRulesModal() {
+      const m = document.getElementById('modalRules');
+      m.classList.remove('hidden');
+      m.classList.add('flex');
+    }
+
+    function closeRulesModal() {
+      const m = document.getElementById('modalRules');
+      m.classList.add('hidden');
+      m.classList.remove('flex');
+    }
+
+    function openCodexModal() {
+      const grid = document.getElementById('codexGrid');
+      grid.innerHTML = '';
+
+      const explored = Object.values(COUNTRIES).filter(c =>
+        gameState.countryStates[c.id] === 'ACTIVE'
+      );
+
+      explored.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+
+      explored.forEach(c => {
+        const card = document.createElement('div');
+        card.className = 'p-3 rounded-xl border transition cursor-pointer bg-amber-500/10 border-amber-500/30 text-slate-200 hover:border-amberGlow';
+        card.onclick = () => {
+          closeCodexModal();
+          focusMapOnCountry(c.id, 4.0);
+        };
+        card.innerHTML = `
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-serif font-bold text-sm text-amberGlow">${c.name}</span>
+            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
+              Illuminé
+            </span>
+          </div>
+          <div class="text-xs text-slate-400 mt-1">Capitale : <strong class="text-slate-200">${c.capital}</strong></div>
+          <div class="text-[11px] text-slate-500 mt-0.5">${c.region}</div>
+        `;
+        grid.appendChild(card);
+      });
+
+      document.getElementById('codexSummaryFooter').textContent =
+        `${explored.length} pays illuminés sur ${Object.keys(COUNTRIES).length} territoires mondiaux`;
+
+      const m = document.getElementById('modalCodex');
+      m.classList.remove('hidden');
+      m.classList.add('flex');
+    }
+
+    function closeCodexModal() {
+      const m = document.getElementById('modalCodex');
+      m.classList.add('hidden');
+      m.classList.remove('flex');
+    }
+
+    function triggerEndExpedition(isVictory) {
+      gameState.status = isVictory ? 'VICTORY' : 'GAMEOVER';
+      const modal = document.getElementById('modalGameOver');
+      const icon = document.getElementById('gameOverIcon');
+      const title = document.getElementById('gameOverTitle');
+      const subtitle = document.getElementById('gameOverSubtitle');
+
+      if (isVictory) {
+        icon.textContent = "☀️";
+        icon.className = "w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-400 text-amberGlow flex items-center justify-center mx-auto mb-3 text-2xl";
+        title.textContent = "Le Monde Est Illuminé !";
+        title.className = "font-serif font-bold text-2xl text-amberGlow mb-1";
+        subtitle.textContent = "Vous avez exploré toutes les frontières accessibles sans laisser les ténèbres éteindre votre expédition.";
+      } else {
+        icon.textContent = "🌑";
+        icon.className = "w-14 h-14 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto mb-3 text-2xl";
+        title.textContent = "L'Obscurité Gagne du Terrain";
+        title.className = "font-serif font-bold text-2xl text-rose-400 mb-1";
+        subtitle.textContent = "Votre dernier Pays Éclaireur capable d'illuminer une frontière s'est éteint dans les ténèbres.";
+      }
+
+      document.getElementById('endStatDiscovered').textContent = gameState.totalDiscovered;
+      document.getElementById('endStatLost').textContent = gameState.totalLost;
+      document.getElementById('endStatStreak').textContent = gameState.bestStreak;
+
+      const lastBox = document.getElementById('endLastTargetBox');
+      if (gameState.lastFailedTargetId && COUNTRIES[gameState.lastFailedTargetId]) {
+        const c = COUNTRIES[gameState.lastFailedTargetId];
+        document.getElementById('endLastTargetName').textContent = `${c.name} (Capitale : ${c.capital})`;
+        lastBox.classList.remove('hidden');
+      } else {
+        lastBox.classList.add('hidden');
+      }
+
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeGameOverModalAndInspect() {
+      const modal = document.getElementById('modalGameOver');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    function closeGameOverAndRestart() {
+      closeGameOverModalAndInspect();
+      openNewGameModal();
+    }
+
+    // Lancement au chargement de la fenêtre
+    window.onload = async function () {
+      await initMapApplication();
+    };
+  </script>
+</body>
+</html>
